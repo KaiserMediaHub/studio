@@ -1,0 +1,18 @@
+[Unit]
+Description=KMG Studio Web App
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/studio
+EnvironmentFile=/var/www/studio/.env
+ExecStart=/var/www/studio/.venv/bin/gunicorn \
+    --workers 2 \
+    --bind 127.0.0.1:3001 \
+    --timeout 120 \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
