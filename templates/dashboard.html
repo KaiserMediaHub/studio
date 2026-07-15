@@ -31,6 +31,23 @@
     padding:22px;}
   .empty{color:var(--text-dim);font-size:14px;}
   .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
+  .newproj{display:flex;gap:8px;margin-bottom:20px;}
+  .newproj input{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;
+    padding:10px 12px;color:var(--text);font-size:14px;}
+  .newproj button{background:var(--accent);color:#151515;border:none;border-radius:8px;
+    padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer;}
+  .proj-row{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 0;border-bottom:1px solid var(--border);}
+  .proj-row:last-child{border-bottom:none;}
+  .proj-name{font-weight:700;font-size:15px;}
+  .proj-meta{color:var(--text-dim);font-size:12px;margin-top:2px;}
+  .phase-pill{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;
+    background:var(--accent-soft);color:var(--accent);white-space:nowrap;}
+  .advance-btn{margin-left:10px;background:none;border:1px solid var(--border);color:var(--text-dim);
+    border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;}
+  .advance-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .error-banner{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
+    padding:12px 16px;font-size:13px;margin-bottom:20px;}
 </style>
 </head>
 <body>
@@ -49,12 +66,48 @@
   <div class="main">
     {% if active_client %}
       <h1>{{ active_client.name }}</h1>
-      <div class="sub">Project dashboard — foundation build, phase tracking not wired up yet</div>
+      <div class="sub">Project dashboard</div>
+
+      {% if degas_error %}
+        <div class="error-banner">Couldn't reach Degas to check clip status: {{ degas_error }}</div>
+      {% endif %}
+
+      <form class="newproj" method="POST" action="{{ url_for('new_project') }}">
+        <input type="hidden" name="client_id" value="{{ active_client.id }}">
+        <input type="text" name="name" placeholder="New project name (e.g. July shoot)" required>
+        <button type="submit">Create Project</button>
+      </form>
+
       <div class="card">
         {% if projects %}
-          {% for p in projects %}<div>{{ p.name }} — {{ p.phase }}</div>{% endfor %}
+          {% for p in projects %}
+            <div class="proj-row">
+              <div>
+                <div class="proj-name">{{ p.name }}</div>
+                <div class="proj-meta">
+                  {% if p.degas_project_id %}{{ p.clips_exported }}/{{ p.clip_count }} clips exported{% else %}not linked to Degas{% endif %}
+                </div>
+              </div>
+              <div>
+                <span class="phase-pill">{{ phase_labels.get(p.phase, p.phase) }}</span>
+                {% if p.phase == 'clipped' %}
+                  <form style="display:inline" method="POST" action="{{ url_for('advance_phase', project_id=p.id) }}">
+                    <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                    <input type="hidden" name="target" value="drafting">
+                    <button class="advance-btn" type="submit">Start Drafting →</button>
+                  </form>
+                {% elif p.phase == 'drafting' %}
+                  <form style="display:inline" method="POST" action="{{ url_for('advance_phase', project_id=p.id) }}">
+                    <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                    <input type="hidden" name="target" value="post_review">
+                    <button class="advance-btn" type="submit">Send to Review →</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
         {% else %}
-          <div class="empty">No projects yet for {{ active_client.name }}. This is Studio's skeleton — Degas/Hemingway integration, phase tracking, and the calendar come in later build steps.</div>
+          <div class="empty">No projects yet for {{ active_client.name }}. Create one above to get started.</div>
         {% endif %}
       </div>
     {% else %}
