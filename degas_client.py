@@ -88,6 +88,16 @@ def get_project(degas_project_id):
     return resp.json()
 
 
+def get_clip_segments(degas_project_id, clip_id):
+    """Returns {original: [...], current: [...]} segments for a clip (task
+    #8, glossary system) -- 'original' is the immutable as-transcribed
+    snapshot, 'current' reflects any Caption Review edits."""
+    resp = _request(
+        "GET", f"/projects/{degas_project_id}/clips/{clip_id}/segments",
+    )
+    return resp.json()
+
+
 # Phase order used to decide whether a Degas-derived phase should overwrite
 # Studio's stored phase, or whether Studio's own manual progress (Drafting
 # onward) should win. See STUDIO_SYSTEM_DESIGN.md Section 4: "Intake through

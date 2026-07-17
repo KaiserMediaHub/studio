@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glossary — {{ active_client.name }} — KMG Studio</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#181b22; --surface-2:#1f2330;
+    --border:#2a2f3d; --text:#f4f4f6; --text-dim:#9498a8;
+    --accent:#ff6a2c; --accent-soft:#2a1c14; --radius:10px;
+    --danger:#e05252; --good:#10b981;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  .app{display:flex;min-height:100vh;}
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+    padding:24px 16px;display:flex;flex-direction:column;gap:28px;}
+  .brand{font-size:19px;font-weight:800;padding:0 8px;}
+  .brand span{color:var(--accent);}
+  .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);
+    padding:0 8px;margin-bottom:6px;font-weight:700;}
+  .client-item{display:block;padding:10px;border-radius:10px;font-size:14px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .client-item:hover{background:var(--surface-2);}
+  .client-item.active{background:var(--accent-soft);color:var(--accent);}
+  .main{flex:1;padding:32px 40px;max-width:800px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
+  .sub a{color:var(--accent);text-decoration:none;}
+  .section{margin-bottom:32px;}
+  .section-title{font-size:14px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:6px 16px;}
+  .empty{color:var(--text-dim);font-size:13px;padding:14px 0;}
+  .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
+  .term-row{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 0;border-bottom:1px solid var(--border);gap:10px;}
+  .term-row:last-child{border-bottom:none;}
+  .term-word{font-weight:700;font-size:14px;}
+  .term-meta{color:var(--text-dim);font-size:12px;margin-top:2px;}
+  .term-actions{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+  select.cat-select{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:6px;padding:5px 8px;font-size:12px;}
+  .btn{border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;}
+  .btn-confirm{background:var(--good);color:#062018;}
+  .btn-reject{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-reject:hover{border-color:var(--danger);color:var(--danger);}
+  .btn-promote{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-promote:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-scan{background:var(--accent);color:#151515;padding:8px 16px;font-size:13px;}
+  .cat-pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--surface-2);
+    color:var(--text-dim);text-transform:capitalize;}
+  .scan-note{color:var(--text-dim);font-size:13px;margin-bottom:20px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="brand">KMG <span>Studio</span></div>
+    <div>
+      <div class="label">Clients</div>
+      {% for c in clients %}
+        <a class="client-item {% if c.id == active_client.id %}active{% endif %}"
+           href="{{ url_for('glossary_view', client_id=c.id) }}">{{ c.name }}</a>
+      {% endfor %}
+    </div>
+    <a class="logout" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+  <div class="main">
+    <h1>Glossary</h1>
+    <div class="sub"><a href="{{ url_for('dashboard', client_id=active_client.id) }}">← Back to {{ active_client.name }}</a></div>
+
+    <form method="POST" action="{{ url_for('glossary_scan', client_id=active_client.id) }}">
+      <button class="btn btn-scan" type="submit">Scan for new candidates</button>
+    </form>
+    <p class="scan-note">Checks every clip's Caption Review edits since the last scan. Takes a few seconds per project.</p>
+
+    <div class="section">
+      <div class="section-title">Pending — needs your confirmation</div>
+      <div class="card">
+        {% if pending %}
+          {% for t in pending %}
+          <div class="term-row">
+            <div>
+              <div class="term-word">{{ t.term }}</div>
+              <div class="term-meta">seen {{ t.occurrence_count }}× &nbsp;·&nbsp; guessed: <span class="cat-pill">{{ t.category }}</span></div>
+            </div>
+            <div class="term-actions">
+              <form method="POST" action="{{ url_for('glossary_confirm', term_id=t.id) }}" style="display:flex;gap:6px;align-items:center;">
+                <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                <select name="category" class="cat-select">
+                  <option value="name" {% if t.category=='name' %}selected{% endif %}>name</option>
+                  <option value="company" {% if t.category=='company' %}selected{% endif %}>company</option>
+                  <option value="figure" {% if t.category=='figure' %}selected{% endif %}>figure</option>
+                  <option value="other" {% if t.category=='other' %}selected{% endif %}>other</option>
+                </select>
+                <button class="btn btn-confirm" type="submit">Confirm</button>
+              </form>
+              <form method="POST" action="{{ url_for('glossary_reject', term_id=t.id) }}">
+                <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                <button class="btn btn-reject" type="submit">Dismiss</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No pending candidates right now.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Confirmed — {{ active_client.name }} only</div>
+      <div class="card">
+        {% if confirmed_client %}
+          {% for t in confirmed_client %}
+          <div class="term-row">
+            <div>
+              <div class="term-word">{{ t.term }}</div>
+              <div class="term-meta"><span class="cat-pill">{{ t.category }}</span></div>
+            </div>
+            <div class="term-actions">
+              <form method="POST" action="{{ url_for('glossary_promote', term_id=t.id) }}">
+                <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                <button class="btn btn-promote" type="submit" title="Not actually client-specific? Hoist it to the global glossary.">Promote to global</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">Nothing confirmed for this client yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Confirmed — Global (applies to every client)</div>
+      <div class="card">
+        {% if confirmed_global %}
+          {% for t in confirmed_global %}
+          <div class="term-row">
+            <div>
+              <div class="term-word">{{ t.term }}</div>
+              <div class="term-meta"><span class="cat-pill">{{ t.category }}</span></div>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">Nothing global yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

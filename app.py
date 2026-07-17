@@ -8,6 +8,7 @@ from flask import (
 from database import init_db, get_db
 import hemingway_client
 import degas_client
+import glossary
 
 # ── Config ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -182,6 +183,120 @@ def api_clients():
         return jsonify(hemingway_client.get_clients())
     except hemingway_client.HemingwayError as e:
         return jsonify({"error": str(e)}), 502
+
+
+# ── Glossary (task #8) ───────────────────────────────────────────────────────
+@app.route("/clients/<int:client_id>/glossary")
+def glossary_view(client_id):
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == client_id), None)
+    if not active_client:
+        return redirect(url_for("dashboard"))
+
+    db = get_db()
+    pending = db.execute(
+        "SELECT * FROM glossary_terms WHERE client_id = ? AND status = 'pending' ORDER BY occurrence_count DESC",
+        (client_id,)
+    ).fetchall()
+    confirmed_client = db.execute(
+        "SELECT * FROM glossary_terms WHERE client_id = ? AND status = 'confirmed' ORDER BY term",
+        (client_id,)
+    ).fetchall()
+    confirmed_global = db.execute(
+        "SELECT * FROM glossary_terms WHERE client_id IS NULL AND status = 'confirmed' ORDER BY term"
+    ).fetchall()
+    db.close()
+
+    return render_template(
+        "glossary.html",
+        clients=clients,
+        active_client=active_client,
+        pending=pending,
+        confirmed_client=confirmed_client,
+        confirmed_global=confirmed_global,
+    )
+
+
+@app.route("/clients/<int:client_id>/glossary/scan", methods=["POST"])
+def glossary_scan(client_id):
+    """Scans every Degas-linked project for this client, diffs each clip's
+    original vs. current transcript, and records any new candidates as
+    pending. Pull-on-click, not a background job -- same reasoning as the
+    Postiz analytics design (task #16): cheap enough to run when asked,
+    no reason to poll constantly."""
+    db = get_db()
+    projects = db.execute(
+        "SELECT * FROM projects WHERE client_id = ? AND degas_project_id IS NOT NULL",
+        (client_id,)
+    ).fetchall()
+
+    total_new = 0
+    errors = []
+    for proj in projects:
+        try:
+            degas_proj = degas_client.get_project(proj["degas_project_id"])
+        except degas_client.DegasError as e:
+            errors.append(str(e))
+            continue
+        for clip in degas_proj.get("clips", []):
+            try:
+                seg_data = degas_client.get_clip_segments(proj["degas_project_id"], clip["id"])
+            except degas_client.DegasError as e:
+                errors.append(str(e))
+                continue
+            candidates = glossary.detect_candidates(seg_data.get("original", []), seg_data.get("current", []))
+            total_new += glossary.record_candidates(db, client_id, candidates)
+    db.close()
+
+    if errors:
+        return render_template("error.html", message="; ".join(errors[:3])), 502
+    return redirect(url_for("glossary_view", client_id=client_id, found=total_new))
+
+
+@app.route("/glossary/<int:term_id>/confirm", methods=["POST"])
+def glossary_confirm(term_id):
+    client_id = request.form.get("client_id", type=int)
+    category = request.form.get("category", "").strip()
+    db = get_db()
+    if category:
+        db.execute(
+            "UPDATE glossary_terms SET status = 'confirmed', category = ? WHERE id = ?",
+            (category, term_id)
+        )
+    else:
+        db.execute("UPDATE glossary_terms SET status = 'confirmed' WHERE id = ?", (term_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("glossary_view", client_id=client_id))
+
+
+@app.route("/glossary/<int:term_id>/reject", methods=["POST"])
+def glossary_reject(term_id):
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    db.execute("DELETE FROM glossary_terms WHERE id = ? AND status = 'pending'", (term_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("glossary_view", client_id=client_id))
+
+
+@app.route("/glossary/<int:term_id>/promote", methods=["POST"])
+def glossary_promote(term_id):
+    """Hoists a client-specific confirmed term to global -- Section 4:
+    'a "promote to global" action lets you hoist something from a client
+    glossary once you notice it's not actually client-specific.'"""
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    db.execute(
+        "UPDATE glossary_terms SET client_id = NULL WHERE id = ? AND status = 'confirmed'",
+        (term_id,)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("glossary_view", client_id=client_id))
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
