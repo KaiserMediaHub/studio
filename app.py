@@ -299,6 +299,119 @@ def glossary_promote(term_id):
     return redirect(url_for("glossary_view", client_id=client_id))
 
 
+# ── Quick posts (task #11) ───────────────────────────────────────────────────
+QUICK_POST_STYLES = ["thought-leader", "conversational", "storyteller", "punchy"]
+QUICK_POST_LENGTHS = ["super-short", "short", "medium", "long"]
+QUICK_POST_TRANSITIONS = {"draft": "scheduled", "scheduled": "published"}
+
+
+@app.route("/clients/<int:client_id>/quick-posts")
+def quick_posts_view(client_id):
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == client_id), None)
+    if not active_client:
+        return redirect(url_for("dashboard"))
+
+    db = get_db()
+    quick_posts = db.execute(
+        "SELECT * FROM posts WHERE client_id = ? AND source = 'quick' ORDER BY created_at DESC",
+        (client_id,)
+    ).fetchall()
+    db.close()
+
+    return render_template(
+        "quick_posts.html",
+        clients=clients,
+        active_client=active_client,
+        quick_posts=quick_posts,
+        styles=QUICK_POST_STYLES,
+        lengths=QUICK_POST_LENGTHS,
+    )
+
+
+@app.route("/clients/<int:client_id>/quick-posts/new", methods=["POST"])
+def quick_posts_new(client_id):
+    """Creates a quick post: point at a Drive folder, describe what's in it,
+    Hemingway writes the caption in that client's voice. No Degas transcript
+    involved -- Section 9's 'Quick-post design, finalized.'"""
+    drive_url = request.form.get("drive_url", "").strip()
+    notes = request.form.get("notes", "").strip()
+    style = request.form.get("style", "conversational")
+    length = request.form.get("length", "short")
+
+    if not notes:
+        return render_template("error.html", message="Notes can't be empty -- Hemingway needs something to write about."), 400
+
+    try:
+        result = hemingway_client.generate_single_post(client_id, notes, style, length)
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    db = get_db()
+    db.execute(
+        """INSERT INTO posts (client_id, source, caption, media_ref, status, hemingway_post_id)
+           VALUES (?, 'quick', ?, ?, 'draft', ?)""",
+        (client_id, result["body"], drive_url, result["post_id"])
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
+@app.route("/quick-posts/<int:post_id>/regenerate", methods=["POST"])
+def quick_posts_regenerate(post_id):
+    client_id = request.form.get("client_id", type=int)
+    instruction = request.form.get("instruction", "").strip()
+
+    db = get_db()
+    post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if not post or not post["hemingway_post_id"]:
+        db.close()
+        return render_template("error.html", message="Can't regenerate -- no linked Hemingway post found."), 400
+
+    try:
+        result = hemingway_client.rewrite_post(post["hemingway_post_id"], instruction)
+    except hemingway_client.HemingwayError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+
+    db.execute("UPDATE posts SET caption = ? WHERE id = ?", (result["body"], post_id))
+    db.commit()
+    db.close()
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
+@app.route("/quick-posts/<int:post_id>/advance", methods=["POST"])
+def quick_posts_advance(post_id):
+    """Minimal 3-state tracking: Draft -> Scheduled -> Published (Section 9).
+    Manual for now -- becomes a real Postiz push once task #12 is built."""
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    target = QUICK_POST_TRANSITIONS.get(post["status"]) if post else None
+    if target:
+        db.execute("UPDATE posts SET status = ? WHERE id = ?", (target, post_id))
+        db.commit()
+    db.close()
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
+@app.route("/quick-posts/<int:post_id>/edit", methods=["POST"])
+def quick_posts_edit(post_id):
+    """Manual caption edit -- you don't always need Hemingway to touch it,
+    sometimes a typo fix is faster by hand."""
+    client_id = request.form.get("client_id", type=int)
+    caption = request.form.get("caption", "")
+    db = get_db()
+    db.execute("UPDATE posts SET caption = ? WHERE id = ?", (caption, post_id))
+    db.commit()
+    db.close()
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 _initialized = False
 

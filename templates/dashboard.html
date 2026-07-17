@@ -66,7 +66,7 @@
   <div class="main">
     {% if active_client %}
       <h1>{{ active_client.name }}</h1>
-      <div class="sub">Project dashboard &nbsp;·&nbsp; <a href="{{ url_for('glossary_view', client_id=active_client.id) }}" style="color:var(--accent);text-decoration:none;">Glossary →</a></div>
+      <div class="sub">Project dashboard &nbsp;·&nbsp; <a href="{{ url_for('glossary_view', client_id=active_client.id) }}" style="color:var(--accent);text-decoration:none;">Glossary →</a> &nbsp;·&nbsp; <a href="{{ url_for('quick_posts_view', client_id=active_client.id) }}" style="color:var(--accent);text-decoration:none;">Quick Posts →</a></div>
 
       {% if degas_error %}
         <div class="error-banner">Couldn't reach Degas to check clip status: {{ degas_error }}</div>

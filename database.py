@@ -54,10 +54,19 @@ def init_db():
             status            TEXT DEFAULT 'draft',     -- draft -> scheduled -> published
             postiz_post_id    TEXT,
             scheduled_for     TIMESTAMP,
+            hemingway_post_id INTEGER,                  -- Hemingway's own posts.id, so quick
+                                                          -- posts can call /api/posts/<id>/rewrite
+                                                          -- to regenerate (task #11)
             created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
         )
     """)
+    # Safe migration for existing DBs created before hemingway_post_id existed --
+    # same try/except pattern used for Degas's client_id column (task #6).
+    try:
+        conn.execute("ALTER TABLE posts ADD COLUMN hemingway_post_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     # Glossary system (Section 4) -- semi-automatic growth, client_id NULL
     # means a global entry. Status starts 'pending' (auto-detected candidate
