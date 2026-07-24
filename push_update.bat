@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Calendar: media upload + Instagram/YouTube support in Add Post"
+git commit -m "Nav rework: client picker + persistent sidebar menu, clickable post links"
 git push
 
 echo.

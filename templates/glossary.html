@@ -23,12 +23,14 @@
     padding:24px 16px;display:flex;flex-direction:column;gap:28px;}
   .brand{font-size:19px;font-weight:800;padding:0 8px;}
   .brand span{color:var(--accent);}
+  .client-select{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;margin-top:10px;cursor:pointer;}
   .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);
     padding:0 8px;margin-bottom:6px;font-weight:700;}
-  .client-item{display:block;padding:10px;border-radius:10px;font-size:14px;font-weight:600;
+  .nav-item{display:block;padding:10px;border-radius:10px;font-size:14px;font-weight:600;
     color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
-  .client-item:hover{background:var(--surface-2);}
-  .client-item.active{background:var(--accent-soft);color:var(--accent);}
+  .nav-item:hover{background:var(--surface-2);}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent);}
   .main{flex:1;padding:32px 40px;max-width:800px;}
   h1{font-size:26px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
@@ -62,19 +64,28 @@
 <body>
 <div class="app">
   <div class="sidebar">
-    <div class="brand">KMG <span>Studio</span></div>
     <div>
-      <div class="label">Clients</div>
-      {% for c in clients %}
-        <a class="client-item {% if c.id == active_client.id %}active{% endif %}"
-           href="{{ url_for('glossary_view', client_id=c.id) }}">{{ c.name }}</a>
-      {% endfor %}
+      <div class="brand">KMG <span>Studio</span></div>
+      {% if clients %}
+      <select class="client-select" onchange="if(this.value) location.href=this.value;">
+        {% for c in clients %}
+          <option value="{{ url_for('glossary_view', client_id=c.id) }}" {% if c.id == active_client.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    <div>
+      <div class="label">Menu</div>
+      <a class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
+      <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Quick Posts</a>
+      <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
+      <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
     </div>
     <a class="logout" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="main">
     <h1>Glossary</h1>
-    <div class="sub"><a href="{{ url_for('dashboard', client_id=active_client.id) }}">← Back to {{ active_client.name }}</a></div>
 
     <form method="POST" action="{{ url_for('glossary_scan', client_id=active_client.id) }}">
       <button class="btn btn-scan" type="submit">Scan for new candidates</button>
