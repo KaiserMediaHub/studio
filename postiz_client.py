@@ -91,48 +91,120 @@ def create_post(post_type, date_iso, posts, tags=None, short_link=False):
     return _request("POST", "/posts", json=body).json()
 
 
-def linkedin_post(integration_id, content, is_page=False):
+def linkedin_post(integration_id, content, is_page=False, image=None):
     """Convenience builder for the common case: one LinkedIn channel, text only."""
     return {
         "integration": {"id": integration_id},
-        "value": [{"content": content, "image": []}],
+        "value": [{"content": content, "image": image or []}],
         "settings": {"__type": "linkedin-page" if is_page else "linkedin"},
     }
 
 
-def facebook_post(integration_id, content, url=None):
+def facebook_post(integration_id, content, url=None, image=None):
     settings = {"__type": "facebook"}
     if url:
         settings["url"] = url
     return {
         "integration": {"id": integration_id},
-        "value": [{"content": content, "image": []}],
+        "value": [{"content": content, "image": image or []}],
         "settings": settings,
     }
 
 
-# Platforms Studio can push to today, without needing anything more than
-# text content -- YouTube/TikTok/etc. need real uploaded media and per-
-# platform fields (title, privacy, etc.) that Studio's quick-post flow
-# doesn't collect yet (task #11 has no media-upload path to Postiz).
+def instagram_post(integration_id, content, image, identifier="instagram", post_type="post"):
+    """Instagram (feed or standalone). Requires at least one image/video --
+    Postiz/Instagram won't accept a text-only post here, unlike LinkedIn or
+    Facebook. `identifier` is 'instagram' (Facebook-linked) or
+    'instagram-standalone', per docs.postiz.com/public-api/providers/instagram."""
+    return {
+        "integration": {"id": integration_id},
+        "value": [{"content": content, "image": image}],
+        "settings": {
+            "__type": identifier,
+            "post_type": post_type,
+            "is_trial_reel": False,
+            "collaborators": [],
+        },
+    }
+
+
+def youtube_post(integration_id, content, image, title, privacy="public"):
+    """YouTube. Requires an uploaded video (image param, despite the name --
+    Postiz's schema reuses `image` for all media types) and a title (2-100
+    chars per docs.postiz.com/public-api/providers/youtube)."""
+    return {
+        "integration": {"id": integration_id},
+        "value": [{"content": content, "image": image}],
+        "settings": {
+            "__type": "youtube",
+            "title": title,
+            "type": privacy,
+            "selfDeclaredMadeForKids": "no",
+        },
+    }
+
+
+# Platforms Studio can push to without any media attached -- the original,
+# still-default set used by Quick Posts (task #11), which has no media
+# upload UI. Kept separate from MEDIA_CAPABLE_IDENTIFIERS below so Quick
+# Posts doesn't list channels it can't actually satisfy Postiz's
+# requirements for.
 SUPPORTED_SCHEDULE_IDENTIFIERS = {"linkedin", "linkedin-page", "facebook"}
 
+# Platforms that Postiz/the underlying network requires real media for --
+# posting without an image/video attached will fail (or be rejected outright
+# for Instagram; YouTube has nothing to publish without a video file).
+MEDIA_REQUIRED_IDENTIFIERS = {"instagram", "instagram-standalone", "youtube"}
 
-def build_post_item(integration_id, identifier, content):
+# Full set the calendar's "Add Post" flow can offer, now that it has a media
+# upload step (task #13 follow-up, 7/24 -- Ben's ask after seeing only 2 of
+# his 4 connected channels selectable).
+MEDIA_CAPABLE_IDENTIFIERS = SUPPORTED_SCHEDULE_IDENTIFIERS | MEDIA_REQUIRED_IDENTIFIERS
+
+
+def build_post_item(integration_id, identifier, content, image=None, extra=None):
     """Picks the right settings builder for a channel based on its Postiz
     `identifier` (as returned by list_integrations()). Raises PostizError
     for anything Studio doesn't know how to push to yet, rather than
-    silently sending a malformed settings object."""
+    silently sending a malformed settings object.
+
+    `image` is a list of {id, path} dicts from upload_file() -- required for
+    identifiers in MEDIA_REQUIRED_IDENTIFIERS. `extra` carries platform-
+    specific fields Studio's caller collected (currently just YouTube's
+    `title`)."""
+    extra = extra or {}
+    if identifier in MEDIA_REQUIRED_IDENTIFIERS and not image:
+        raise PostizError(f"'{identifier}' requires an image or video attached -- none was provided.")
+
     if identifier == "linkedin":
-        return linkedin_post(integration_id, content, is_page=False)
+        return linkedin_post(integration_id, content, is_page=False, image=image)
     if identifier == "linkedin-page":
-        return linkedin_post(integration_id, content, is_page=True)
+        return linkedin_post(integration_id, content, is_page=True, image=image)
     if identifier == "facebook":
-        return facebook_post(integration_id, content)
+        return facebook_post(integration_id, content, image=image)
+    if identifier in ("instagram", "instagram-standalone"):
+        return instagram_post(integration_id, content, image, identifier=identifier)
+    if identifier == "youtube":
+        title = (extra.get("title") or "").strip()
+        if not title:
+            raise PostizError("YouTube requires a video title.")
+        return youtube_post(integration_id, content, image, title)
     raise PostizError(
         f"Studio doesn't support scheduling to '{identifier}' yet -- only "
-        f"{', '.join(sorted(SUPPORTED_SCHEDULE_IDENTIFIERS))} are wired up."
+        f"{', '.join(sorted(MEDIA_CAPABLE_IDENTIFIERS))} are wired up."
     )
+
+
+def upload_file(file_obj, filename, content_type):
+    """Uploads a media file to Postiz, returning {id, name, path, ...}. The
+    returned {id, path} pair is what gets passed into a post's `image` array
+    (docs.postiz.com/public-api/uploads/upload-file -- accepts JPEG/PNG/GIF/
+    WebP/AVIF/BMP/TIFF images or MP4 video; rejects everything else,
+    including PDFs, based on actual file content not just extension)."""
+    return _request(
+        "POST", "/upload",
+        files={"file": (filename, file_obj, content_type)},
+    ).json()
 
 
 def list_posts(start_date_iso, end_date_iso, customer=None):

@@ -144,7 +144,8 @@
   <div class="modal">
     <h2>Create Post</h2>
     {% if channels %}
-    <form method="POST" action="{{ url_for('calendar_create_post', client_id=active_client.id) }}" onsubmit="return combineDateTime();">
+    <form method="POST" action="{{ url_for('calendar_create_post', client_id=active_client.id) }}"
+          enctype="multipart/form-data" onsubmit="return combineDateTime();" id="create-post-form">
       <input type="hidden" name="month_key" value="{{ month_key }}">
       <input type="hidden" name="send_at" id="send_at">
 
@@ -153,10 +154,23 @@
         <div class="channel-list">
           {% for c in channels %}
             <label class="channel-opt">
-              <input type="checkbox" name="channel_ids" value="{{ c.id }}"> {{ c.name }} <span style="color:var(--text-dim);">({{ c.identifier }})</span>
+              <input type="checkbox" name="channel_ids" value="{{ c.id }}" data-identifier="{{ c.identifier }}" onchange="onChannelChange()"> {{ c.name }} <span style="color:var(--text-dim);">({{ c.identifier }})</span>
             </label>
           {% endfor %}
         </div>
+        <div class="hint" id="media-hint" style="display:none;color:var(--sched);font-size:12px;margin-top:6px;">
+          The selected platform(s) need an image or video attached below.
+        </div>
+      </div>
+
+      <div class="field" id="youtube-title-field" style="display:none;">
+        <label>Video title (YouTube)</label>
+        <input type="text" id="youtube-title" name="youtube_title" maxlength="100" placeholder="2-100 characters">
+      </div>
+
+      <div class="field">
+        <label>Media (image or video -- required for Instagram/YouTube)</label>
+        <input type="file" name="media" id="media-input" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp,image/tiff,video/mp4">
       </div>
 
       <div class="field">
@@ -203,6 +217,25 @@ function combineDateTime() {
   if (!d || !t) { return false; }
   document.getElementById('send_at').value = d + 'T' + t;
   return true;
+}
+var MEDIA_REQUIRED = {{ media_required_identifiers|default([])|tojson }};
+function onChannelChange() {
+  var form = document.getElementById('create-post-form');
+  if (!form) { return; }
+  var checked = Array.prototype.slice.call(form.querySelectorAll('input[name="channel_ids"]:checked'));
+  var identifiers = checked.map(function(c) { return c.getAttribute('data-identifier'); });
+
+  var needsMedia = identifiers.some(function(id) { return MEDIA_REQUIRED.indexOf(id) !== -1; });
+  var hint = document.getElementById('media-hint');
+  var mediaInput = document.getElementById('media-input');
+  if (hint) { hint.style.display = needsMedia ? 'block' : 'none'; }
+  if (mediaInput) { mediaInput.required = needsMedia; }
+
+  var needsYoutube = identifiers.indexOf('youtube') !== -1;
+  var ytField = document.getElementById('youtube-title-field');
+  var ytInput = document.getElementById('youtube-title');
+  if (ytField) { ytField.style.display = needsYoutube ? 'block' : 'none'; }
+  if (ytInput) { ytInput.required = needsYoutube; }
 }
 document.getElementById('post-overlay').addEventListener('click', function(e) {
   if (e.target === this) { closeModal(); }

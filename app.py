@@ -313,19 +313,21 @@ QUICK_POST_LENGTHS = ["super-short", "short", "medium", "long"]
 QUICK_POST_TRANSITIONS = {"scheduled": "published"}
 
 
-def _get_schedulable_channels(linked):
+def _get_schedulable_channels(linked, allowed_identifiers=None):
     """Shared by quick_posts_view and calendar_view -- returns (channels,
     channels_error) for whichever client's Postiz group is passed in,
-    filtered to identifiers Studio actually knows how to schedule to
-    (postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS). Factored out so both
-    screens can't drift on what "available channels" means."""
+    filtered to a set of identifiers Studio actually knows how to schedule
+    to. Defaults to the text-only set (Quick Posts has no media upload UI);
+    calendar_view passes MEDIA_CAPABLE_IDENTIFIERS since it has one. Factored
+    out so both screens can't drift on what "available channels" means."""
     if not linked:
         return [], None
+    allowed = allowed_identifiers or postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS
     try:
         all_integrations = postiz_client.list_integrations(linked["postiz_group_id"])
         channels = [
             i for i in all_integrations
-            if i["identifier"] in postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS and not i.get("disabled")
+            if i["identifier"] in allowed and not i.get("disabled")
         ]
         return channels, None
     except postiz_client.PostizError as e:
@@ -543,7 +545,10 @@ def calendar_view(client_id):
     ).fetchone()
     db.close()
 
-    channels, channels_error = _get_schedulable_channels(linked)
+    # Media-capable set here (not the text-only default) -- the calendar's
+    # Add Post modal has a file upload step, so Instagram/YouTube are real
+    # options here even though Quick Posts doesn't offer them.
+    channels, channels_error = _get_schedulable_channels(linked, postiz_client.MEDIA_CAPABLE_IDENTIFIERS)
 
     days = {}
     postiz_error = None
@@ -578,6 +583,7 @@ def calendar_view(client_id):
         linked=linked,
         channels=channels,
         channels_error=channels_error,
+        media_required_identifiers=list(postiz_client.MEDIA_REQUIRED_IDENTIFIERS),
         days=days,
         weeks=weeks,
         current_month=month,
@@ -596,11 +602,18 @@ def calendar_create_post(client_id):
     a caption and picks channels right on the calendar, like Hey Orca's
     'Create Post(s)' modal, instead of going through Quick Posts first. No
     Hemingway involved here -- this is for a caption you're writing yourself;
-    Quick Posts is still the path when you want Hemingway's help drafting it."""
+    Quick Posts is still the path when you want Hemingway's help drafting it.
+
+    Now handles an optional media file (task #18): uploaded once to Postiz
+    and attached to every selected channel that accepts it, since Instagram
+    and YouTube both require real media -- see
+    postiz_client.MEDIA_REQUIRED_IDENTIFIERS."""
     caption = request.form.get("caption", "").strip()
     channel_ids = request.form.getlist("channel_ids")
     send_at = request.form.get("send_at", "").strip()
     month_key = request.form.get("month_key", "")
+    youtube_title = request.form.get("youtube_title", "").strip()
+    media_file = request.files.get("media")
 
     if not caption or not channel_ids or not send_at:
         return render_template("error.html", message="A caption, at least one channel, and a send time are all required."), 400
@@ -614,14 +627,28 @@ def calendar_create_post(client_id):
     try:
         integrations = postiz_client.list_integrations(linked["postiz_group_id"])
         by_id = {i["id"]: i for i in integrations}
-        posts_payload = []
-        for cid in channel_ids:
-            integ = by_id.get(cid)
-            if integ:
-                posts_payload.append(postiz_client.build_post_item(cid, integ["identifier"], caption))
-        if not posts_payload:
+        selected = [by_id[cid] for cid in channel_ids if cid in by_id]
+        if not selected:
             db.close()
             return render_template("error.html", message="None of the selected channels could be matched to a connected integration."), 400
+
+        needs_media = any(i["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS for i in selected)
+        image = []
+        if media_file and media_file.filename:
+            uploaded = postiz_client.upload_file(media_file.stream, media_file.filename, media_file.content_type)
+            image = [{"id": uploaded["id"], "path": uploaded["path"]}]
+        elif needs_media:
+            db.close()
+            needed = [i["identifier"] for i in selected if i["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS]
+            return render_template("error.html", message=f"{', '.join(needed)} requires an image or video attached -- none was uploaded."), 400
+
+        posts_payload = [
+            postiz_client.build_post_item(
+                i["id"], i["identifier"], caption,
+                image=image, extra={"title": youtube_title},
+            )
+            for i in selected
+        ]
 
         date_iso = f"{send_at}:00.000Z" if len(send_at) == 16 else send_at
         result = postiz_client.create_post("schedule", date_iso, posts_payload)
