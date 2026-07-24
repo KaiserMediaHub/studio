@@ -665,6 +665,43 @@ def clip_download(project_id, clip_id):
     )
 
 
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/video")
+def clip_video(project_id, clip_id):
+    """Proxies the clip's raw uploaded video (no captions) for inline
+    preview next to the transcript during Caption Review -- so Ben can
+    watch the clip and read/edit the text side by side to catch the class
+    of error text-only review can't: Whisper hearing a name or number
+    wrong but writing something clean and grammatical (Ben's ask, 7/24).
+
+    Forwards the browser's Range header to Degas and mirrors back whatever
+    status/headers Degas responds with, so the <video> player's seek bar
+    actually works instead of only playing top-to-bottom."""
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return render_template("error.html", message="This project isn't linked to Degas."), 400
+
+    range_header = request.headers.get("Range")
+    try:
+        degas_resp = degas_client.stream_clip_video(proj["degas_project_id"], clip_id, range_header)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    proxy_headers = {}
+    for h in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+        if h in degas_resp.headers:
+            proxy_headers[h] = degas_resp.headers[h]
+    proxy_headers.setdefault("Content-Type", "video/mp4")
+    proxy_headers.setdefault("Accept-Ranges", "bytes")
+
+    return Response(
+        degas_resp.iter_content(chunk_size=65536),
+        status=degas_resp.status_code,
+        headers=proxy_headers,
+    )
+
+
 @app.route("/projects/<int:project_id>/write-posts", methods=["POST"])
 def project_write_posts(project_id):
     """Generates real posts from this project's actual reviewed transcript --

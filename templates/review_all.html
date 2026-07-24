@@ -42,7 +42,7 @@
   .nav-subitem:hover{background:var(--surface-2);}
   .nav-subitem.active{background:var(--accent-soft);color:var(--accent);}
   .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
-  .main{flex:1;padding:32px 40px;max-width:900px;}
+  .main{flex:1;padding:32px 40px;max-width:1200px;}
   .top-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
   h1{font-size:24px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
@@ -53,6 +53,10 @@
   .clip-block{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:20px;margin-bottom:20px;}
   .clip-title{font-size:15px;font-weight:700;margin-bottom:14px;}
+  .review-layout{display:flex;gap:22px;align-items:flex-start;}
+  .video-pane{flex:0 0 300px;position:sticky;top:24px;}
+  .video-pane video{width:100%;border-radius:8px;background:#000;display:block;}
+  .transcript-pane{flex:1;min-width:0;}
   .seg-row{margin-bottom:10px;}
   .seg-time{font-size:11px;color:var(--text-dim);margin-bottom:3px;font-variant-numeric:tabular-nums;}
   .seg-text{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;
@@ -110,16 +114,23 @@
         <div class="clip-block">
           <div class="clip-title">{{ c.filename }}</div>
           <input type="hidden" name="clip_id" value="{{ c.clip_id }}">
-          {% if c.segments %}
-            {% for seg in c.segments %}
-            <div class="seg-row">
-              <div class="seg-time">{{ "%.1f"|format(seg.start or 0) }}s – {{ "%.1f"|format(seg.end or 0) }}s</div>
-              <textarea class="seg-text" name="segment_text_{{ c.clip_id }}">{{ seg.text }}</textarea>
+          <div class="review-layout">
+            <div class="video-pane">
+              <video controls preload="metadata" src="{{ url_for('clip_video', project_id=project.id, clip_id=c.clip_id) }}"></video>
             </div>
-            {% endfor %}
-          {% else %}
-            <div class="empty">No transcript segments for this clip.</div>
-          {% endif %}
+            <div class="transcript-pane">
+              {% if c.segments %}
+                {% for seg in c.segments %}
+                <div class="seg-row">
+                  <div class="seg-time">{{ "%.1f"|format(seg.start or 0) }}s – {{ "%.1f"|format(seg.end or 0) }}s</div>
+                  <textarea class="seg-text" name="segment_text_{{ c.clip_id }}">{{ seg.text }}</textarea>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="empty">No transcript segments for this clip.</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
         {% endfor %}
         <div class="save-bar">

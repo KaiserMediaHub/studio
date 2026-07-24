@@ -221,6 +221,27 @@ def download_clip(degas_project_id, clip_id):
     )
 
 
+def stream_clip_video(degas_project_id, clip_id, range_header=None):
+    """Returns the raw streaming response for a clip's ORIGINAL uploaded
+    video (no captions burned in) -- for inline preview during Caption
+    Review, not for download. Backed by Degas's confirmed-live
+    /projects/<id>/clips/<id>/video route (send_file, Flask's conditional=True
+    default handles Range requests on Degas's end).
+
+    Forwards the browser's Range header through if given, so Studio's proxy
+    route can pass back a real 206 Partial Content response -- without this,
+    the <video> player can still load and play the file top-to-bottom but
+    users can't scrub/seek partway through a clip, which defeats the point
+    of "watch the clip while reading the line in question." Degas may
+    respond with a plain 200 (whole file, e.g. on first load with no Range
+    yet) or 206 (a specific byte range) -- both are passed through as-is."""
+    headers = {"Range": range_header} if range_header else {}
+    return _request(
+        "GET", f"/projects/{degas_project_id}/clips/{clip_id}/video",
+        stream=True, headers=headers,
+    )
+
+
 def get_clip_segments(degas_project_id, clip_id):
     """Returns {original: [...], current: [...]} segments for a clip (task
     #8, glossary system) -- 'original' is the immutable as-transcribed

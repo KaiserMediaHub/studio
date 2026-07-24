@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Add Review All: bulk transcript review/save across every clip in a project"
+git commit -m "Add video preview next to transcript in Review and Review All screens"
 git push
 
 echo.
