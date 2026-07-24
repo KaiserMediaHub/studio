@@ -109,3 +109,39 @@ def facebook_post(integration_id, content, url=None):
         "value": [{"content": content, "image": []}],
         "settings": settings,
     }
+
+
+# Platforms Studio can push to today, without needing anything more than
+# text content -- YouTube/TikTok/etc. need real uploaded media and per-
+# platform fields (title, privacy, etc.) that Studio's quick-post flow
+# doesn't collect yet (task #11 has no media-upload path to Postiz).
+SUPPORTED_SCHEDULE_IDENTIFIERS = {"linkedin", "linkedin-page", "facebook"}
+
+
+def build_post_item(integration_id, identifier, content):
+    """Picks the right settings builder for a channel based on its Postiz
+    `identifier` (as returned by list_integrations()). Raises PostizError
+    for anything Studio doesn't know how to push to yet, rather than
+    silently sending a malformed settings object."""
+    if identifier == "linkedin":
+        return linkedin_post(integration_id, content, is_page=False)
+    if identifier == "linkedin-page":
+        return linkedin_post(integration_id, content, is_page=True)
+    if identifier == "facebook":
+        return facebook_post(integration_id, content)
+    raise PostizError(
+        f"Studio doesn't support scheduling to '{identifier}' yet -- only "
+        f"{', '.join(sorted(SUPPORTED_SCHEDULE_IDENTIFIERS))} are wired up."
+    )
+
+
+def list_posts(start_date_iso, end_date_iso, customer=None):
+    """Returns posts within a date range: {"posts": [{id, content,
+    publishDate, releaseURL, state, integration: {...}}, ...]}. state is one
+    of QUEUE, PUBLISHED, ERROR, DRAFT -- this is Postiz's own real status,
+    which is what the calendar (task #13) should show rather than Studio
+    guessing at it locally."""
+    params = {"startDate": start_date_iso, "endDate": end_date_iso}
+    if customer:
+        params["customer"] = customer
+    return _request("GET", "/posts", params=params).json()

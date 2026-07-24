@@ -76,7 +76,15 @@
   </div>
   <div class="main">
     <h1>Quick Posts</h1>
-    <div class="sub"><a href="{{ url_for('dashboard', client_id=active_client.id) }}">← Back to {{ active_client.name }}</a></div>
+    <div class="sub"><a href="{{ url_for('dashboard', client_id=active_client.id) }}">← Back to {{ active_client.name }}</a> &nbsp;·&nbsp; <a href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar →</a></div>
+
+    {% if channels_error %}
+      <div style="background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;padding:12px 16px;font-size:13px;margin-bottom:16px;">{{ channels_error }}</div>
+    {% elif not linked %}
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;margin-bottom:16px;color:var(--text-dim);">
+        {{ active_client.name }} isn't linked to a Postiz group yet — <a href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}" style="color:var(--accent);">set that up</a> before scheduling.
+      </div>
+    {% endif %}
 
     <div class="card">
       <div class="label" style="padding:0;margin-bottom:12px;">New quick post</div>
@@ -125,15 +133,33 @@
             <input type="text" name="instruction" placeholder="optional: tell Hemingway what to change" style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;width:220px;">
             <button class="btn btn-ghost btn-small" type="submit">Regenerate</button>
           </form>
-          {% if p.status != 'published' %}
+          {% if p.status == 'scheduled' %}
           <form method="POST" action="{{ url_for('quick_posts_advance', post_id=p.id) }}">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">
-            <button class="btn btn-ghost btn-small" type="submit">
-              {% if p.status == 'draft' %}Mark Scheduled →{% else %}Mark Published →{% endif %}
-            </button>
+            <button class="btn btn-ghost btn-small" type="submit">Mark Published →</button>
           </form>
           {% endif %}
         </div>
+
+        {% if p.status == 'draft' and channels %}
+        <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+          <input type="hidden" name="client_id" value="{{ active_client.id }}">
+          <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px;">Schedule to Postiz</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;">
+            {% for c in channels %}
+              <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" name="channel_ids" value="{{ c.id }}"> {{ c.name }} <span style="color:var(--text-dim);font-size:11px;">({{ c.identifier }})</span>
+              </label>
+            {% endfor %}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="datetime-local" name="send_at" required style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;">
+            <button class="btn btn-primary btn-small" type="submit">Schedule →</button>
+          </div>
+        </form>
+        {% elif p.status == 'draft' %}
+        <div class="empty" style="margin-top:12px;">No channels available to schedule to yet.</div>
+        {% endif %}
       </div>
       {% endfor %}
     {% else %}

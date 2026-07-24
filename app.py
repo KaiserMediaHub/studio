@@ -1,4 +1,6 @@
 import os
+import calendar as cal_module
+from datetime import datetime, timedelta, timezone
 
 from flask import (
     Flask, render_template, request, redirect,
@@ -303,7 +305,12 @@ def glossary_promote(term_id):
 # ── Quick posts (task #11) ───────────────────────────────────────────────────
 QUICK_POST_STYLES = ["thought-leader", "conversational", "storyteller", "punchy"]
 QUICK_POST_LENGTHS = ["super-short", "short", "medium", "long"]
-QUICK_POST_TRANSITIONS = {"draft": "scheduled", "scheduled": "published"}
+# draft -> scheduled now happens for real via quick_posts_schedule_to_postiz
+# (task #13) -- Postiz itself is the source of truth for that transition.
+# scheduled -> published stays a manual confirm for now since Studio doesn't
+# sync Postiz's publish webhook/state back yet (the calendar shows Postiz's
+# real state directly instead -- see calendar_view).
+QUICK_POST_TRANSITIONS = {"scheduled": "published"}
 
 
 @app.route("/clients/<int:client_id>/quick-posts")
@@ -321,7 +328,25 @@ def quick_posts_view(client_id):
         "SELECT * FROM posts WHERE client_id = ? AND source = 'quick' ORDER BY created_at DESC",
         (client_id,)
     ).fetchall()
+    linked = db.execute(
+        "SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)
+    ).fetchone()
     db.close()
+
+    # Channels available to schedule a draft to -- only fetched if this
+    # client has a linked Postiz group, and filtered to what Studio can
+    # actually push to today (postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS).
+    channels = []
+    channels_error = None
+    if linked:
+        try:
+            all_integrations = postiz_client.list_integrations(linked["postiz_group_id"])
+            channels = [
+                i for i in all_integrations
+                if i["identifier"] in postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS and not i.get("disabled")
+            ]
+        except postiz_client.PostizError as e:
+            channels_error = str(e)
 
     return render_template(
         "quick_posts.html",
@@ -330,6 +355,9 @@ def quick_posts_view(client_id):
         quick_posts=quick_posts,
         styles=QUICK_POST_STYLES,
         lengths=QUICK_POST_LENGTHS,
+        linked=linked,
+        channels=channels,
+        channels_error=channels_error,
     )
 
 
@@ -400,6 +428,57 @@ def quick_posts_advance(post_id):
     return redirect(url_for("quick_posts_view", client_id=client_id))
 
 
+@app.route("/quick-posts/<int:post_id>/schedule-to-postiz", methods=["POST"])
+def quick_posts_schedule_to_postiz(post_id):
+    """Real draft -> scheduled transition (task #13): pushes the post to
+    Postiz on the channels you pick, at the time you pick, instead of just
+    flipping a local status flag. Postiz becomes the source of truth for
+    whether/when this actually goes out."""
+    client_id = request.form.get("client_id", type=int)
+    channel_ids = request.form.getlist("channel_ids")
+    send_at = request.form.get("send_at", "").strip()
+
+    if not channel_ids or not send_at:
+        return render_template("error.html", message="Pick at least one channel and a send time."), 400
+
+    db = get_db()
+    post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    linked = db.execute("SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)).fetchone()
+    if not post or not linked:
+        db.close()
+        return render_template("error.html", message="Can't schedule -- no linked Postiz group for this client."), 400
+
+    try:
+        integrations = postiz_client.list_integrations(linked["postiz_group_id"])
+        by_id = {i["id"]: i for i in integrations}
+        posts_payload = []
+        for cid in channel_ids:
+            integ = by_id.get(cid)
+            if integ:
+                posts_payload.append(postiz_client.build_post_item(cid, integ["identifier"], post["caption"]))
+        if not posts_payload:
+            db.close()
+            return render_template("error.html", message="None of the selected channels could be matched to a connected integration."), 400
+
+        # send_at comes from an HTML datetime-local input ("YYYY-MM-DDTHH:MM"),
+        # which has no timezone. Treated as UTC for now -- mapping it to the
+        # client's actual local timezone is a real gap, not handled yet.
+        date_iso = f"{send_at}:00.000Z" if len(send_at) == 16 else send_at
+        result = postiz_client.create_post("schedule", date_iso, posts_payload)
+    except postiz_client.PostizError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+
+    postiz_ids = ",".join(str(r.get("postId")) for r in result)
+    db.execute(
+        "UPDATE posts SET status = 'scheduled', postiz_post_id = ?, scheduled_for = ? WHERE id = ?",
+        (postiz_ids, send_at, post_id)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
 @app.route("/quick-posts/<int:post_id>/edit", methods=["POST"])
 def quick_posts_edit(post_id):
     """Manual caption edit -- you don't always need Hemingway to touch it,
@@ -414,6 +493,78 @@ def quick_posts_edit(post_id):
 
 
 # ── Postiz setup (task #12) ──────────────────────────────────────────────────
+@app.route("/clients/<int:client_id>/calendar")
+def calendar_view(client_id):
+    """Single-client calendar (task #13, Section 6: 'strictly single-client
+    view, no cross-client rollup'). Reads Postiz's own /posts endpoint live
+    for the selected month -- Postiz's `state` field (QUEUE/PUBLISHED/ERROR/
+    DRAFT) is the real status, not something Studio tracks separately."""
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == client_id), None)
+    if not active_client:
+        return redirect(url_for("dashboard"))
+
+    today = datetime.now(timezone.utc)
+    month_str = request.args.get("month", "")
+    try:
+        year, month = map(int, month_str.split("-"))
+    except ValueError:
+        year, month = today.year, today.month
+
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    last_day = cal_module.monthrange(year, month)[1]
+    end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+    prev_month = (start - timedelta(days=1)).strftime("%Y-%m")
+    next_month = (end + timedelta(days=1)).strftime("%Y-%m")
+
+    db = get_db()
+    linked = db.execute(
+        "SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)
+    ).fetchone()
+    db.close()
+
+    days = {}
+    postiz_error = None
+    if not linked:
+        postiz_error = f"{active_client['name']} isn't linked to a Postiz group yet -- set that up first."
+    else:
+        try:
+            resp = postiz_client.list_posts(
+                start.strftime("%Y-%m-%dT00:00:00.000Z"),
+                end.strftime("%Y-%m-%dT23:59:59.000Z"),
+                customer=linked["postiz_group_id"],
+            )
+            for p in resp.get("posts", []):
+                day = p["publishDate"][:10]
+                time_str = p["publishDate"][11:16]
+                days.setdefault(day, []).append({
+                    "id": p["id"],
+                    "content": p["content"],
+                    "time": time_str,
+                    "state": p["state"],
+                    "channel_name": p.get("integration", {}).get("name", ""),
+                    "channel_platform": p.get("integration", {}).get("providerIdentifier", ""),
+                    "release_url": p.get("releaseURL"),
+                })
+        except postiz_client.PostizError as e:
+            postiz_error = str(e)
+
+    return render_template(
+        "calendar.html",
+        clients=clients,
+        active_client=active_client,
+        linked=linked,
+        days=days,
+        postiz_error=postiz_error,
+        month_label=start.strftime("%B %Y"),
+        prev_month=prev_month,
+        next_month=next_month,
+    )
+
+
 @app.route("/clients/<int:client_id>/postiz-setup")
 def postiz_setup_view(client_id):
     """Links a Hemingway client to a Postiz customer group. Real scheduling
