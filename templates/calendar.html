@@ -31,6 +31,17 @@
     color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
   .nav-item:hover{background:var(--surface-2);}
   .nav-item.active{background:var(--accent-soft);color:var(--accent);}
+  .nav-group summary{list-style:none;cursor:pointer;}
+  .nav-group summary::-webkit-details-marker{display:none;}
+  .nav-toggle{display:flex;align-items:center;justify-content:space-between;}
+  .nav-toggle::after{content:"\25BE";font-size:10px;color:var(--text-dim);}
+  .nav-group[open] .nav-toggle::after{content:"\25B4";}
+  .nav-submenu{margin-left:6px;border-left:1px solid var(--border);padding-left:10px;
+    margin-top:2px;margin-bottom:6px;}
+  .nav-subitem{display:block;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .nav-subitem:hover{background:var(--surface-2);}
+  .nav-subitem.active{background:var(--accent-soft);color:var(--accent);}
   .main{flex:1;padding:32px 40px;max-width:1180px;}
   h1{font-size:26px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
@@ -110,10 +121,15 @@
     <div>
       <div class="label">Menu</div>
       <a class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
-      <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Quick Posts</a>
+      <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <a class="nav-item {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+      <details class="nav-group" {% if request.endpoint == 'postiz_setup_view' %}open{% endif %}>
+        <summary class="nav-item nav-toggle {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}">Settings</summary>
+        <div class="nav-submenu">
+          <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+        </div>
+      </details>
     </div>
     <a class="logout" href="{{ url_for('logout') }}">Log out</a>
   </div>
