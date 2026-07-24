@@ -325,10 +325,26 @@
     if (!files.length) { return; }
     var wrap = document.getElementById('progress-wrap');
     wrap.innerHTML = '';
-    files.forEach(function (file) { uploadFile(file, wrap); });
+
+    // Uploading several files fires several independent chunk-upload loops
+    // at once. Reloading as soon as any ONE of them finished used to kill
+    // every other file's in-flight upload mid-chunk (confirmed 7/24 -- 5
+    // files selected, only the fastest one survived). Wait for all of them
+    // to reach a final state (done or failed) before reloading once.
+    var remaining = files.length;
+    var anySucceeded = false;
+    function onFileSettled(succeeded) {
+      remaining -= 1;
+      if (succeeded) { anySucceeded = true; }
+      if (remaining === 0 && anySucceeded) {
+        setTimeout(function () { location.reload(); }, 800);
+      }
+    }
+
+    files.forEach(function (file) { uploadFile(file, wrap, onFileSettled); });
   }
 
-  function uploadFile(file, wrap) {
+  function uploadFile(file, wrap, onSettled) {
     var fileUid = uid();
     var totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1;
     var item = document.createElement('div');
@@ -353,18 +369,20 @@
         .then(function (data) {
           if (data.error) {
             item.innerHTML = file.name + ' — upload failed: ' + data.error;
+            onSettled(false);
             return;
           }
           fill.style.width = Math.round(((index + 1) / totalChunks) * 100) + '%';
           if (data.status === 'complete') {
-            item.innerHTML = file.name + ' — uploaded, refreshing…';
-            setTimeout(function () { location.reload(); }, 800);
+            item.innerHTML = file.name + ' — uploaded';
+            onSettled(true);
           } else if (index + 1 < totalChunks) {
             sendChunk(index + 1);
           }
         })
         .catch(function (err) {
           item.innerHTML = file.name + ' — upload failed: ' + err;
+          onSettled(false);
         });
     }
     sendChunk(0);

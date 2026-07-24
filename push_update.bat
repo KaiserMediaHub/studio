@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Fix upload: shrink chunk size to fit under nginx's 10MB body-size limit"
+git commit -m "Fix upload: wait for all files to finish before reloading, not just the first"
 git push
 
 echo.
