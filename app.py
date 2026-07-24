@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify
+    url_for, session, jsonify, Response
 )
 
 from database import init_db, get_db
@@ -74,6 +74,7 @@ def dashboard():
         return render_template("error.html", message=str(e)), 502
 
     active_client_id = request.args.get("client_id", type=int)
+    show_archived = request.args.get("show_archived") == "1"
     active_client = None
     projects = []
     degas_error = None
@@ -83,10 +84,16 @@ def dashboard():
             clients[0]
         )
         db = get_db()
-        rows = db.execute(
-            "SELECT * FROM projects WHERE client_id = ? ORDER BY created_at DESC",
-            (active_client["id"],)
-        ).fetchall()
+        if show_archived:
+            rows = db.execute(
+                "SELECT * FROM projects WHERE client_id = ? ORDER BY created_at DESC",
+                (active_client["id"],)
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM projects WHERE client_id = ? AND archived_at IS NULL ORDER BY created_at DESC",
+                (active_client["id"],)
+            ).fetchall()
 
         # Task #7: Intake-through-Clipped phase comes from Degas's own
         # clips.status, read live rather than duplicated -- see
@@ -114,6 +121,7 @@ def dashboard():
                 "clip_count": len(clips),
                 "clips_exported": sum(1 for c in clips if c["status"] == "exported"),
                 "created_at": p["created_at"],
+                "archived_at": p["archived_at"],
             })
         db.close()
 
@@ -124,6 +132,7 @@ def dashboard():
         projects=projects,
         degas_error=degas_error,
         phase_labels=PHASE_LABELS,
+        show_archived=show_archived,
     )
 
 
@@ -178,6 +187,355 @@ def advance_phase(project_id):
         db.commit()
     db.close()
     return redirect(url_for("dashboard", client_id=client_id))
+
+
+@app.route("/projects/<int:project_id>/archive", methods=["POST"])
+def project_archive(project_id):
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    db.execute("UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = ?", (project_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("dashboard", client_id=client_id))
+
+
+@app.route("/projects/<int:project_id>/unarchive", methods=["POST"])
+def project_unarchive(project_id):
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    db.execute("UPDATE projects SET archived_at = NULL WHERE id = ?", (project_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("dashboard", client_id=client_id))
+
+
+@app.route("/projects/<int:project_id>/delete", methods=["POST"])
+def project_delete(project_id):
+    """Permanently removes this project from Studio only -- does not touch
+    the linked Degas project or its uploaded video/exported files, which are
+    a separate system Studio doesn't own and shouldn't destroy from here.
+    Posts already generated/scheduled keep existing (posts.project_id ON
+    DELETE SET NULL) -- deleting the project just unlinks them, it doesn't
+    delete post history."""
+    client_id = request.form.get("client_id", type=int)
+    db = get_db()
+    db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("dashboard", client_id=client_id))
+
+
+# ── Project workspace (task #21): the real Upload -> Transcribe -> Review ->
+# Export -> Write Posts pipeline, built as genuine Studio screens against
+# Degas's and Hemingway's real APIs, not stubs or redirects to those other
+# apps -- confirmed against live server source 7/24, no changes needed on
+# either Degas's or Hemingway's side.
+def _build_project_transcript(degas_project_id, clips):
+    """Builds a transcript string compatible with Hemingway's
+    split_transcript() parser: one 'VIDEO: NN - Title' line per clip
+    followed by that clip's current (possibly human-edited) segment text,
+    one segment per line. Only includes clips whose transcript actually
+    exists yet (transcribed/exported) -- clips still uploading/transcribing/
+    erroring have nothing usable."""
+    sections = []
+    eligible = [c for c in clips if c["status"] in ("transcribed", "exported")]
+    for idx, clip in enumerate(eligible, start=1):
+        title = os.path.splitext(clip.get("original_filename") or clip["filename"])[0]
+        try:
+            seg_data = degas_client.get_clip_segments(degas_project_id, clip["id"])
+        except degas_client.DegasError:
+            continue
+        segments = seg_data.get("current") or seg_data.get("original") or []
+        lines = [f"VIDEO: {idx:02d} - {title}"]
+        for seg in segments:
+            text = (seg.get("text") or "").strip()
+            if text:
+                lines.append(text)
+        if len(lines) > 1:
+            sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+
+@app.route("/projects/<int:project_id>")
+def project_detail(project_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not proj:
+        db.close()
+        return redirect(url_for("dashboard"))
+
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == proj["client_id"]), None)
+
+    degas_clips = []
+    degas_error = None
+    if proj["degas_project_id"]:
+        try:
+            degas_proj = degas_client.get_project(proj["degas_project_id"])
+            degas_clips = degas_proj.get("clips", [])
+        except degas_client.DegasError as e:
+            degas_error = str(e)
+
+    project_posts = db.execute(
+        "SELECT * FROM posts WHERE project_id = ? ORDER BY created_at DESC", (project_id,)
+    ).fetchall()
+    linked = db.execute(
+        "SELECT * FROM client_postiz_groups WHERE client_id = ?", (proj["client_id"],)
+    ).fetchone()
+    db.close()
+
+    channels, channels_error = _get_schedulable_channels(linked)
+    can_write_posts = any(c["status"] in ("transcribed", "exported") for c in degas_clips)
+
+    return render_template(
+        "project_detail.html",
+        clients=clients,
+        active_client=active_client,
+        project=proj,
+        phase_labels=PHASE_LABELS,
+        degas_clips=degas_clips,
+        degas_error=degas_error,
+        export_styles=degas_client.EXPORT_STYLES,
+        project_posts=project_posts,
+        can_write_posts=can_write_posts,
+        linked=linked,
+        channels=channels,
+        channels_error=channels_error,
+    )
+
+
+@app.route("/projects/<int:project_id>/upload-chunk", methods=["POST"])
+def project_upload_chunk(project_id):
+    """Receives one chunk from the browser's JS uploader and forwards it to
+    Degas's real chunked-upload route using Studio's own authenticated
+    session -- the browser never talks to degas.kmgtools.us directly."""
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return jsonify({"error": "This project isn't linked to Degas."}), 400
+
+    file_uid = request.form.get("file_uid", "")
+    chunk_index = request.form.get("chunk_index", "")
+    total_chunks = request.form.get("total_chunks", "")
+    filename = request.form.get("filename", "")
+    file_obj = request.files.get("data")
+    if not file_uid or not file_obj:
+        return jsonify({"error": "missing fields"}), 400
+
+    try:
+        result = degas_client.upload_chunk(
+            proj["degas_project_id"], file_uid, chunk_index, total_chunks, filename,
+            file_obj.stream.read(), file_obj.content_type or "application/octet-stream",
+        )
+    except degas_client.DegasError as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(result)
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/transcribe", methods=["POST"])
+def clip_transcribe(project_id, clip_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if proj and proj["degas_project_id"]:
+        try:
+            degas_client.trigger_transcribe(proj["degas_project_id"], clip_id)
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/transcribe-all", methods=["POST"])
+def project_transcribe_all(project_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if proj and proj["degas_project_id"]:
+        try:
+            degas_client.trigger_transcribe_all(proj["degas_project_id"])
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/status.json")
+def clip_status_json(project_id, clip_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return jsonify({"error": "not linked"}), 400
+    try:
+        return jsonify(degas_client.get_clip_status(proj["degas_project_id"], clip_id))
+    except degas_client.DegasError as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/review")
+def clip_review(project_id, clip_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj:
+        return redirect(url_for("dashboard"))
+
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == proj["client_id"]), None)
+
+    try:
+        seg_data = degas_client.get_clip_segments(proj["degas_project_id"], clip_id)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    return render_template(
+        "clip_review.html",
+        clients=clients,
+        active_client=active_client,
+        project=proj,
+        clip_id=clip_id,
+        segments=seg_data.get("current") or [],
+    )
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/review/save", methods=["POST"])
+def clip_review_save(project_id, clip_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj:
+        return redirect(url_for("dashboard"))
+
+    try:
+        seg_data = degas_client.get_clip_segments(proj["degas_project_id"], clip_id)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    current = seg_data.get("current") or []
+    texts = request.form.getlist("segment_text")
+    merged = []
+    for i, seg in enumerate(current):
+        text = texts[i] if i < len(texts) else seg.get("text", "")
+        merged.append({"start": seg.get("start", 0), "end": seg.get("end", 0), "text": text})
+
+    try:
+        degas_client.save_clip_segments(proj["degas_project_id"], clip_id, merged)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/export", methods=["POST"])
+def clip_export(project_id, clip_id):
+    style = request.form.get("style", "1")
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if proj and proj["degas_project_id"]:
+        try:
+            degas_client.trigger_export(proj["degas_project_id"], clip_id, style)
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/export-all", methods=["POST"])
+def project_export_all(project_id):
+    style = request.form.get("style", "1")
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if proj and proj["degas_project_id"]:
+        try:
+            degas_client.trigger_export_all(proj["degas_project_id"], style)
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/download")
+def clip_download(project_id, clip_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return render_template("error.html", message="This project isn't linked to Degas."), 400
+
+    try:
+        degas_resp = degas_client.download_clip(proj["degas_project_id"], clip_id)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    content_disposition = degas_resp.headers.get("Content-Disposition")
+    if not content_disposition:
+        return render_template("error.html", message="This clip isn't exported yet -- export it first, then download."), 400
+
+    return Response(
+        degas_resp.iter_content(chunk_size=8192),
+        content_type=degas_resp.headers.get("Content-Type", "video/mp4"),
+        headers={"Content-Disposition": content_disposition},
+    )
+
+
+@app.route("/projects/<int:project_id>/write-posts", methods=["POST"])
+def project_write_posts(project_id):
+    """Generates real posts from this project's actual reviewed transcript --
+    the counterpart to Quick Posts (task #11), which deliberately has no
+    Degas transcript involved. This is the 'Write Captions in Hemingway
+    Module' step of the pipeline Ben asked for (7/24)."""
+    style = request.form.get("style", "conversational")
+    length = request.form.get("length", "short")
+
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not proj:
+        db.close()
+        return render_template("error.html", message="Project not found."), 404
+    if not proj["degas_project_id"]:
+        db.close()
+        return render_template("error.html", message="This project isn't linked to Degas -- nothing to write from."), 400
+
+    try:
+        degas_proj = degas_client.get_project(proj["degas_project_id"])
+    except degas_client.DegasError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+
+    transcript = _build_project_transcript(proj["degas_project_id"], degas_proj.get("clips", []))
+    if not transcript.strip():
+        db.close()
+        return render_template("error.html", message="No reviewed transcript text yet -- transcribe and review at least one clip before writing posts."), 400
+
+    try:
+        result = hemingway_client.generate_from_transcript(
+            proj["client_id"], transcript, style=style, length=length, name=proj["name"]
+        )
+    except hemingway_client.HemingwayError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+
+    db.execute(
+        "UPDATE projects SET hemingway_batch_id = ?, phase = 'drafting' WHERE id = ?",
+        (result["batch_id"], project_id)
+    )
+    for p in result["posts"]:
+        if p.get("id") and p.get("body"):
+            db.execute(
+                """INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id)
+                   VALUES (?, ?, 'project', ?, 'draft', ?)""",
+                (proj["client_id"], project_id, p["body"], p["id"])
+            )
+    db.commit()
+    db.close()
+    return redirect(url_for("project_detail", project_id=project_id))
 
 
 @app.route("/api/clients")
@@ -313,6 +671,16 @@ QUICK_POST_LENGTHS = ["super-short", "short", "medium", "long"]
 QUICK_POST_TRANSITIONS = {"scheduled": "published"}
 
 
+def _post_redirect(post, client_id):
+    """Quick Posts (task #11) and project-sourced posts (task #21) share the
+    same posts table and the same edit/regenerate/schedule actions -- this
+    sends you back to wherever that post actually lives (its project page,
+    or Quick Posts) instead of hardcoding Quick Posts for both."""
+    if post and post["project_id"]:
+        return redirect(url_for("project_detail", project_id=post["project_id"]))
+    return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
 def _get_schedulable_channels(linked, allowed_identifiers=None):
     """Shared by quick_posts_view and calendar_view -- returns (channels,
     channels_error) for whichever client's Postiz group is passed in,
@@ -418,7 +786,7 @@ def quick_posts_regenerate(post_id):
     db.execute("UPDATE posts SET caption = ? WHERE id = ?", (result["body"], post_id))
     db.commit()
     db.close()
-    return redirect(url_for("quick_posts_view", client_id=client_id))
+    return _post_redirect(post, client_id)
 
 
 @app.route("/quick-posts/<int:post_id>/advance", methods=["POST"])
@@ -433,7 +801,7 @@ def quick_posts_advance(post_id):
         db.execute("UPDATE posts SET status = ? WHERE id = ?", (target, post_id))
         db.commit()
     db.close()
-    return redirect(url_for("quick_posts_view", client_id=client_id))
+    return _post_redirect(post, client_id)
 
 
 @app.route("/quick-posts/<int:post_id>/schedule-to-postiz", methods=["POST"])
@@ -484,7 +852,7 @@ def quick_posts_schedule_to_postiz(post_id):
     )
     db.commit()
     db.close()
-    return redirect(url_for("quick_posts_view", client_id=client_id))
+    return _post_redirect(post, client_id)
 
 
 @app.route("/quick-posts/<int:post_id>/edit", methods=["POST"])
@@ -494,10 +862,11 @@ def quick_posts_edit(post_id):
     client_id = request.form.get("client_id", type=int)
     caption = request.form.get("caption", "")
     db = get_db()
+    post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     db.execute("UPDATE posts SET caption = ? WHERE id = ?", (caption, post_id))
     db.commit()
     db.close()
-    return redirect(url_for("quick_posts_view", client_id=client_id))
+    return _post_redirect(post, client_id)
 
 
 # ── Postiz setup (task #12) ──────────────────────────────────────────────────

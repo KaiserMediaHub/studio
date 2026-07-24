@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Nav: Settings dropdown (nests Postiz Setup); rename Quick Posts to Write Post"
+git commit -m "Project workspace: upload, transcribe, review, export, write posts; archive/delete"
 git push
 
 echo.

@@ -88,6 +88,114 @@ def get_project(degas_project_id):
     return resp.json()
 
 
+# Degas's own caption-burn styles (captions.py STYLES) -- the /export and
+# /export-all routes take this as a plain string form field, falling back to
+# "1" for anything unrecognized. Confirmed against live server 7/24.
+EXPORT_STYLES = {
+    "1": "Golden Word",
+    "2": "Pro Bronze",
+    "3": "Purple Flash",
+    "4": "Clean Pill",
+}
+
+
+def upload_chunk(degas_project_id, file_uid, chunk_index, total_chunks, filename, chunk_bytes, content_type="application/octet-stream"):
+    """Forwards one chunk of a video upload to Degas's real chunked-upload
+    protocol (confirmed against live server 7/24 -- there is no non-chunked
+    variant). Studio's own upload route receives chunks from the browser and
+    calls this once per chunk using its own authenticated Degas session, since
+    the browser never talks to degas.kmgtools.us directly.
+
+    Returns Degas's response JSON: {"status": "chunk_received", "chunks":,
+    "total":} for every chunk except the last, or {"status": "complete",
+    "filename": <original>} once all chunks have arrived and been reassembled
+    into a new clip (status='uploaded'). The response does NOT include the
+    new clip's id -- re-fetch get_project() to find it."""
+    resp = _request(
+        "POST", f"/projects/{degas_project_id}/upload/chunk",
+        data={
+            "file_uid": file_uid,
+            "chunk_index": str(chunk_index),
+            "total_chunks": str(total_chunks),
+            "filename": filename,
+        },
+        files={"data": (filename, chunk_bytes, content_type)},
+    )
+    return resp.json()
+
+
+def get_clip_status(degas_project_id, clip_id):
+    """Polls a single clip's transcription/export progress. Returns
+    {"status": ..., "error": ...} normally, or {"status": "transcribing",
+    "error": None, "elapsed": <seconds>} while a transcription is running."""
+    resp = _request("GET", f"/projects/{degas_project_id}/clips/{clip_id}/status")
+    return resp.json()
+
+
+def trigger_transcribe(degas_project_id, clip_id):
+    """Starts transcription for one clip. Fire-and-forget -- Degas responds
+    immediately with {"status": "transcribing"} and runs Whisper in a
+    background thread; poll get_clip_status() for completion."""
+    resp = _request("POST", f"/projects/{degas_project_id}/clips/{clip_id}/transcribe")
+    return resp.json()
+
+
+def trigger_transcribe_all(degas_project_id):
+    """Starts transcription for every clip in the project currently
+    'uploaded' or 'error'. Degas's route is written for browser form
+    submission, not API use -- it 302-redirects to the project page rather
+    than returning JSON, so there's nothing meaningful to parse from the
+    response. Poll get_clip_status() per clip afterward."""
+    _request("POST", f"/projects/{degas_project_id}/transcribe-all")
+
+
+def save_clip_segments(degas_project_id, clip_id, segments):
+    """Saves edited transcript text for one clip (Caption Review). `segments`
+    must be the full list of {"start": float, "end": float, "text": str}
+    dicts, positionally aligned to the existing segments file -- Degas's
+    /save route only actually reads .text per index, but also feeds the same
+    list into update_words_from_segments(), which does need real start/end
+    values, so always send the complete original start/end alongside any
+    edited text rather than omitting them."""
+    resp = _request(
+        "POST", f"/projects/{degas_project_id}/clips/{clip_id}/save",
+        json={"segments": segments},
+    )
+    return resp.json()
+
+
+def trigger_export(degas_project_id, clip_id, style="1"):
+    """Starts caption-burn export for one clip. `style` is one of
+    EXPORT_STYLES's keys ("1"-"4"); unrecognized values silently fall back to
+    "1" on Degas's side, not an error. Fire-and-forget, same pattern as
+    transcribe -- poll get_clip_status() for 'exported'/'error'."""
+    resp = _request(
+        "POST", f"/projects/{degas_project_id}/clips/{clip_id}/export",
+        data={"style": style},
+    )
+    return resp.json()
+
+
+def trigger_export_all(degas_project_id, style="1"):
+    """Starts caption-burn export for every clip currently 'transcribed'
+    (NOT 'error', unlike transcribe-all). Same redirect-not-JSON response
+    shape as transcribe_all -- poll per clip afterward."""
+    _request("POST", f"/projects/{degas_project_id}/export-all", data={"style": style})
+
+
+def download_clip(degas_project_id, clip_id):
+    """Returns the raw streaming response for a captioned clip's video file,
+    for Studio's own download route to proxy through to the browser (the
+    browser never talks to Degas directly). Degas redirects to the project
+    page instead of erroring if the export isn't ready yet -- callers should
+    check for a real 'Content-Disposition' header on the response before
+    treating this as a successful file, not just the status code."""
+    return _request(
+        "GET", f"/projects/{degas_project_id}/clips/{clip_id}/download",
+        stream=True,
+    )
+
+
 def get_clip_segments(degas_project_id, clip_id):
     """Returns {original: [...], current: [...]} segments for a clip (task
     #8, glossary system) -- 'original' is the immutable as-transcribed

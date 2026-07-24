@@ -141,6 +141,62 @@ def generate_single_post(client_id, notes, style="conversational", length="short
     return result
 
 
+def get_batches(client_id):
+    return _request("GET", f"/api/clients/{client_id}/batches").json()
+
+
+def get_batch(batch_id):
+    return _request("GET", f"/api/batches/{batch_id}").json()
+
+
+def get_batch_posts(batch_id):
+    return _request("GET", f"/api/batches/{batch_id}/posts").json()
+
+
+# ── Real project-sourced posts (task #21) ───────────────────────────────────
+# Unlike generate_single_post() above, this sends a real, already-formatted
+# Degas transcript (built from actual clip segment text, real VIDEO: NN -
+# Title markers) straight through -- no synthetic wrapping needed since the
+# caller already produced something split_transcript() can parse directly.
+def generate_from_transcript(client_id, transcript, style="conversational", length="short", context="", name=""):
+    _ensure_session()
+    try:
+        resp = _session.post(
+            f"{HEMINGWAY_BASE_URL}/api/generate",
+            json={
+                "clientId": client_id,
+                "transcript": transcript,
+                "style": style,
+                "length": length,
+                "context": context,
+                "name": name,
+            },
+            timeout=120,
+            stream=True,
+        )
+    except requests.exceptions.RequestException as e:
+        raise HemingwayError(f"Couldn't reach Hemingway at {HEMINGWAY_BASE_URL}/api/generate: {e}") from e
+    if resp.status_code >= 400:
+        raise HemingwayError(f"Hemingway API error ({resp.status_code}) on /api/generate: {resp.text[:200]}")
+
+    batch_id = None
+    posts = []
+    for raw_line in resp.iter_lines(decode_unicode=True):
+        if not raw_line:
+            continue
+        event = json.loads(raw_line)
+        if event["type"] == "start":
+            batch_id = event["batchId"]
+        elif event["type"] == "post":
+            posts.append(event)
+        elif event["type"] == "done":
+            break
+
+    if batch_id is None:
+        raise HemingwayError("Hemingway returned no batch -- no 'start' event in the response stream.")
+    return {"batch_id": batch_id, "posts": posts}
+
+
 def rewrite_post(hemingway_post_id, instruction=""):
     """Regenerate a quick post's caption. Reuses Hemingway's existing
     /api/posts/<id>/rewrite -- it already re-reads that post's stored batch

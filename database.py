@@ -30,14 +30,27 @@ def init_db():
     # owns, since they don't exist in Degas or Hemingway's data model today.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS projects (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_id         INTEGER NOT NULL,      -- Hemingway's client id
-            name              TEXT NOT NULL,
-            degas_project_id  INTEGER,                -- FK into Degas's own projects table
-            phase             TEXT DEFAULT 'intake',
-            created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id          INTEGER NOT NULL,      -- Hemingway's client id
+            name               TEXT NOT NULL,
+            degas_project_id   INTEGER,                -- FK into Degas's own projects table
+            phase              TEXT DEFAULT 'intake',
+            hemingway_batch_id INTEGER,                -- set once "Write Posts" has generated
+                                                          -- a real batch from this project's transcript
+            archived_at        TIMESTAMP,               -- NULL = active; set = archived, hidden by default
+            created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Safe migrations for existing DBs created before these columns existed --
+    # same try/except pattern used elsewhere in this file.
+    for stmt in (
+        "ALTER TABLE projects ADD COLUMN hemingway_batch_id INTEGER",
+        "ALTER TABLE projects ADD COLUMN archived_at TIMESTAMP",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
 
     # Per-post scheduling status -- deliberately separate from project.phase
     # (Section 4: "phase tracking is two-tiered" -- a batch moves through
