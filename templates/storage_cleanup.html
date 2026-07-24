@@ -7,12 +7,13 @@
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
 <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
-<title>Review — {{ project.name }} — KMG Studio</title>
+<title>Storage Cleanup — KMG Studio</title>
 <style>
   :root{
     --bg:#0f1115; --surface:#181b22; --surface-2:#1f2330;
     --border:#2a2f3d; --text:#f4f4f6; --text-dim:#9498a8;
     --accent:#ff6a2c; --accent-soft:#2a1c14; --radius:10px;
+    --danger:#e05252; --good:#10b981;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);
@@ -42,17 +43,25 @@
   .nav-subitem:hover{background:var(--surface-2);}
   .nav-subitem.active{background:var(--accent-soft);color:var(--accent);}
   .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
-  .main{flex:1;padding:32px 40px;max-width:820px;}
-  h1{font-size:24px;margin:0 0 4px;}
+  .main{flex:1;padding:32px 40px;max-width:900px;}
+  h1{font-size:26px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
-  .sub a{color:var(--accent);text-decoration:none;}
-  .seg-row{margin-bottom:10px;}
-  .seg-time{font-size:11px;color:var(--text-dim);margin-bottom:3px;font-variant-numeric:tabular-nums;}
-  .seg-text{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;
-    padding:10px 12px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;min-height:44px;}
-  .btn{border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;
-    background:var(--accent);color:#151515;margin-top:16px;}
+  .error-banner{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
+    padding:12px 16px;font-size:13px;margin-bottom:20px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
   .empty{color:var(--text-dim);font-size:14px;}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
+  .row:last-child{border-bottom:none;}
+  .row-name{font-weight:700;font-size:14px;}
+  .row-meta{color:var(--text-dim);font-size:12px;margin-top:2px;}
+  .age-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
+    background:#3a1414;color:#ff9a9a;white-space:nowrap;margin-left:auto;}
+  .status-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
+    background:var(--surface-2);color:var(--text-dim);text-transform:capitalize;white-space:nowrap;}
+  .btn{border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;
+    background:var(--danger);color:#fff;margin-top:16px;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .select-all{font-size:13px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
 </style>
 </head>
 <body>
@@ -75,11 +84,11 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}open{% endif %}>
-        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}active{% endif %}">Settings</summary>
+      <details class="nav-group" open>
+        <summary class="nav-item nav-toggle active">Settings</summary>
         <div class="nav-submenu">
-          <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
-          <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+          <a class="nav-subitem active" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
         </div>
       </details>
     </div>
@@ -87,22 +96,40 @@
     <a class="logout" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="main">
-    <h1>Review transcript</h1>
-    <div class="sub"><a href="{{ url_for('project_detail', project_id=project.id) }}">← Back to {{ project.name }}</a></div>
+    <h1>Storage Cleanup</h1>
+    <div class="sub">Clips whose project is {{ threshold_days }}+ days old, across every client. Nothing here deletes on its own — check what you want gone and click Delete.</div>
 
-    <form method="POST" action="{{ url_for('clip_review_save', project_id=project.id, clip_id=clip_id) }}">
-      {% if segments %}
-        {% for seg in segments %}
-        <div class="seg-row">
-          <div class="seg-time">{{ "%.1f"|format(seg.start or 0) }}s – {{ "%.1f"|format(seg.end or 0) }}s</div>
-          <textarea class="seg-text" name="segment_text">{{ seg.text }}</textarea>
-        </div>
-        {% endfor %}
-        <button class="btn" type="submit">Save changes</button>
+    {% if errors %}
+      <div class="error-banner">{{ errors|join('; ') }}</div>
+    {% endif %}
+
+    <div class="card">
+      {% if candidates %}
+        <form method="POST" action="{{ url_for('storage_cleanup_delete') }}"
+              onsubmit="return confirm('Permanently delete the selected clip media from Degas? This cannot be undone.');">
+          <div class="toolbar">
+            <label class="select-all">
+              <input type="checkbox" onclick="document.querySelectorAll('.cleanup-check').forEach(function(cb){cb.checked = this.checked;}, this)">
+              Select all
+            </label>
+          </div>
+          {% for c in candidates %}
+          <div class="row">
+            <input type="checkbox" class="cleanup-check" name="delete_ids" value="{{ c.degas_project_id }}:{{ c.clip_id }}">
+            <div>
+              <div class="row-name">{{ c.filename }}</div>
+              <div class="row-meta">{{ c.client_name }} — {{ c.project_name }}</div>
+            </div>
+            <span class="status-pill">{{ c.status }}</span>
+            <span class="age-pill">{{ c.age_days }} days old</span>
+          </div>
+          {% endfor %}
+          <button class="btn" type="submit">Delete selected</button>
+        </form>
       {% else %}
-        <div class="empty">No transcript segments yet for this clip.</div>
+        <div class="empty">Nothing is {{ threshold_days }}+ days old yet.</div>
       {% endif %}
-    </form>
+    </div>
   </div>
 </div>
 </body>

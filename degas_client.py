@@ -124,6 +124,18 @@ def upload_chunk(degas_project_id, file_uid, chunk_index, total_chunks, filename
     return resp.json()
 
 
+def delete_clip_media(degas_project_id, clip_id):
+    """Storage cleanup (task #22): permanently deletes a clip's raw uploaded
+    video and exported captioned file from Degas's disk, via a new route
+    added directly on the live server (appended, no other code touched --
+    see project notes on why this couldn't go through the normal git
+    push/pull deploy this one time). The clip's DB row survives, marked
+    status='deleted', so project history and phase tracking aren't lost --
+    only the actual media files are gone, and this cannot be undone."""
+    resp = _request("POST", f"/projects/{degas_project_id}/clips/{clip_id}/delete-media")
+    return resp.json()
+
+
 def get_clip_status(degas_project_id, clip_id):
     """Polls a single clip's transcription/export progress. Returns
     {"status": ..., "error": ...} normally, or {"status": "transcribing",
@@ -223,7 +235,10 @@ def compute_degas_phase(clips):
     statuses = [c["status"] for c in clips]
     if any(s in ("uploaded", "transcribing") for s in statuses):
         return "transcribing"
-    if all(s == "exported" for s in statuses):
+    # 'deleted' (storage cleanup, task #22) counts the same as 'exported' here
+    # -- a clip whose media was cleaned up after 45+ days was already fully
+    # exported; it shouldn't make an old, finished project look unclipped.
+    if all(s in ("exported", "deleted") for s in statuses):
         return "clipped"
     if any(s in ("transcribed", "exporting", "error") for s in statuses):
         return "caption_review"

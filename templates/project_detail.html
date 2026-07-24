@@ -121,10 +121,11 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <details class="nav-group" {% if request.endpoint == 'postiz_setup_view' %}open{% endif %}>
-        <summary class="nav-item nav-toggle {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}">Settings</summary>
+      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}open{% endif %}>
+        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
           <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+          <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
         </div>
       </details>
     </div>
@@ -308,7 +309,11 @@
 </div>
 <script>
   var PROJECT_ID = {{ project.id }};
-  var CHUNK_SIZE = 45 * 1024 * 1024; // stay under Degas's suggested 50MB/chunk
+  // Nginx in front of Studio caps request bodies at 10MB
+  // (client_max_body_size 10M in /etc/nginx/sites-available/studio) --
+  // chunks must stay safely under that, not Degas's own 50MB suggestion,
+  // since every chunk passes through Studio's proxy route first.
+  var CHUNK_SIZE = 8 * 1024 * 1024;
 
   function uid() {
     return 'f' + Date.now() + Math.random().toString(16).slice(2);

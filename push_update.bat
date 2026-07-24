@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Project workspace: upload, transcribe, review, export, write posts; archive/delete"
+git commit -m "Fix upload: shrink chunk size to fit under nginx's 10MB body-size limit"
 git push
 
 echo.

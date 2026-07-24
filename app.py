@@ -125,6 +125,8 @@ def dashboard():
             })
         db.close()
 
+    cleanup_candidates, _cleanup_errors = _get_cleanup_candidates()
+
     return render_template(
         "dashboard.html",
         clients=clients,
@@ -133,7 +135,104 @@ def dashboard():
         degas_error=degas_error,
         phase_labels=PHASE_LABELS,
         show_archived=show_archived,
+        cleanup_count=len(cleanup_candidates),
     )
+
+
+# ── Storage cleanup (task #22) ───────────────────────────────────────────────
+# Nothing here ever deletes automatically in the background -- this only
+# flags clips whose project is 45+ days old for Ben to review and delete
+# himself from the Storage Cleanup page (or dismiss via the dashboard
+# banner). Age is based on the Studio project's own created_at rather than
+# asking Degas for per-clip timestamps, since Degas's existing JSON project
+# endpoint doesn't return clip-level created_at and adding that would have
+# meant a riskier hand-edit to an existing live route instead of a pure
+# append -- see degas_client.delete_clip_media()'s docstring.
+CLEANUP_THRESHOLD_DAYS = 45
+
+
+def _get_cleanup_candidates():
+    """Cross-client scan: every non-deleted clip belonging to a Studio
+    project that's 45+ days old. Computed fresh on every call -- no caching
+    yet, since project/clip counts are small today; worth revisiting if this
+    gets slow once all 4 clients are onboarded (task #15)."""
+    db = get_db()
+    rows = db.execute("SELECT * FROM projects WHERE degas_project_id IS NOT NULL").fetchall()
+    db.close()
+
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError:
+        clients = []
+    client_names = {c["id"]: c["name"] for c in clients}
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=CLEANUP_THRESHOLD_DAYS)
+    candidates = []
+    errors = []
+    for proj in rows:
+        try:
+            created_at = datetime.strptime(proj["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        if created_at >= cutoff:
+            continue
+        try:
+            degas_proj = degas_client.get_project(proj["degas_project_id"])
+        except degas_client.DegasError as e:
+            errors.append(f"{proj['name']}: {e}")
+            continue
+        age_days = (now - created_at).days
+        for clip in degas_proj.get("clips", []):
+            if clip["status"] == "deleted":
+                continue
+            candidates.append({
+                "project_id": proj["id"],
+                "degas_project_id": proj["degas_project_id"],
+                "project_name": proj["name"],
+                "client_name": client_names.get(proj["client_id"], "?"),
+                "clip_id": clip["id"],
+                "filename": clip.get("original_filename") or clip["filename"],
+                "status": clip["status"],
+                "age_days": age_days,
+            })
+    return candidates, errors
+
+
+@app.route("/settings/storage-cleanup")
+def storage_cleanup_view():
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = clients[0] if clients else None
+
+    candidates, errors = _get_cleanup_candidates()
+    return render_template(
+        "storage_cleanup.html",
+        clients=clients,
+        active_client=active_client,
+        candidates=candidates,
+        errors=errors,
+        threshold_days=CLEANUP_THRESHOLD_DAYS,
+    )
+
+
+@app.route("/settings/storage-cleanup/delete", methods=["POST"])
+def storage_cleanup_delete():
+    """Deletes exactly the clips Ben checked and confirmed -- nothing else.
+    Each is gone from Degas's disk permanently; there's no undo."""
+    selected = request.form.getlist("delete_ids")
+    errors = []
+    for item in selected:
+        try:
+            degas_project_id_str, clip_id_str = item.split(":")
+            degas_client.delete_clip_media(int(degas_project_id_str), int(clip_id_str))
+        except (ValueError, degas_client.DegasError) as e:
+            errors.append(str(e))
+    if errors:
+        return render_template("error.html", message="; ".join(errors[:3])), 502
+    return redirect(url_for("storage_cleanup_view"))
 
 
 PHASE_LABELS = {

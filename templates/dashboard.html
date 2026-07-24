@@ -69,6 +69,9 @@
   .danger-btn:hover{border-color:var(--danger);color:var(--danger);}
   .error-banner{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
     padding:12px 16px;font-size:13px;margin-bottom:20px;}
+  .hint-banner{background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;
+    padding:12px 16px;font-size:13px;margin-bottom:20px;}
+  .hint-banner a{color:var(--accent);text-decoration:none;font-weight:700;}
 </style>
 </head>
 <body>
@@ -91,10 +94,11 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <details class="nav-group" {% if request.endpoint == 'postiz_setup_view' %}open{% endif %}>
-        <summary class="nav-item nav-toggle {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}">Settings</summary>
+      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}open{% endif %}>
+        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
           <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+          <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
         </div>
       </details>
     </div>
@@ -112,6 +116,13 @@
 
       {% if degas_error %}
         <div class="error-banner">Couldn't reach Degas to check clip status: {{ degas_error }}</div>
+      {% endif %}
+
+      {% if cleanup_count %}
+        <div class="hint-banner">
+          <strong>{{ cleanup_count }}</strong> clip{% if cleanup_count != 1 %}s{% endif %} across all clients {% if cleanup_count == 1 %}is{% else %}are{% endif %} 45+ days old and ready for storage cleanup.
+          <a href="{{ url_for('storage_cleanup_view') }}">Review →</a>
+        </div>
       {% endif %}
 
       <form class="newproj" method="POST" action="{{ url_for('new_project') }}">
