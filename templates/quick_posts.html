@@ -66,7 +66,7 @@
   .qp-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
   .qp-drive{font-size:12px;color:var(--accent);text-decoration:none;}
   .qp-caption{white-space:pre-wrap;font-size:14px;line-height:1.5;background:var(--surface-2);
-    border-radius:8px;padding:12px 14px;margin-bottom:12px;}
+    border-radius:8px;padding:12px 14px;margin-bottom:12px;color:var(--text);}
   .qp-caption[contenteditable="true"]{outline:1px solid var(--accent);}
   .status-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;text-transform:capitalize;}
   .status-draft{background:var(--surface-2);color:var(--text-dim);}
@@ -120,7 +120,7 @@
 
     <div class="card">
       <div class="label" style="padding:0;margin-bottom:12px;">Write a post</div>
-      <form method="POST" action="{{ url_for('quick_posts_new', client_id=active_client.id) }}">
+      <form method="POST" action="{{ url_for('quick_posts_new', client_id=active_client.id) }}" class="js-loading-form">
         <div class="field">
           <label>Google Drive folder URL (where the photo/video lives)</label>
           <input type="text" name="drive_url" placeholder="https://drive.google.com/drive/folders/...">
@@ -147,7 +147,7 @@
             </select>
           </div>
         </div>
-        <button class="btn btn-primary" type="submit">Generate caption</button>
+        <button class="btn btn-primary" type="submit" data-loading-text="Writing caption…">Generate caption</button>
       </form>
     </div>
 
@@ -164,11 +164,11 @@
           <button class="btn btn-ghost btn-small" type="submit" style="margin-bottom:12px;">Save edit</button>
         </form>
         <div class="qp-actions">
-          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" style="display:block;width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" class="js-loading-form" style="display:block;width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">
             <label style="display:block;font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Don't like it? Add feedback and regenerate</label>
             <textarea name="instruction" placeholder="e.g. make it punchier, mention the new location, cut the last line..." style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%;min-height:44px;resize:vertical;font-family:inherit;margin-bottom:8px;"></textarea>
-            <button class="btn btn-primary btn-small" type="submit">Regenerate</button>
+            <button class="btn btn-primary btn-small" type="submit" data-loading-text="Regenerating…">Regenerate</button>
           </form>
           {% if p.status == 'scheduled' %}
           <form method="POST" action="{{ url_for('quick_posts_advance', post_id=p.id) }}">
@@ -179,7 +179,7 @@
         </div>
 
         {% if p.status == 'draft' and channels %}
-        <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+        <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" class="js-loading-form" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
           <input type="hidden" name="client_id" value="{{ active_client.id }}">
           <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px;">Schedule to Postiz</div>
           <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;">
@@ -191,7 +191,7 @@
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <input type="datetime-local" name="send_at" required style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;">
-            <button class="btn btn-primary btn-small" type="submit">Schedule →</button>
+            <button class="btn btn-primary btn-small" type="submit" data-loading-text="Scheduling…">Schedule →</button>
           </div>
         </form>
         {% elif p.status == 'draft' %}
@@ -204,5 +204,20 @@
     {% endif %}
   </div>
 </div>
+<script>
+  // Every generate/regenerate/schedule form is a normal synchronous POST that
+  // ends in a full page reload -- there's no AJAX progress to show. This just
+  // gives immediate feedback that the click registered (Ben's ask, 7/24:
+  // "nothing seemed to happen") instead of leaving the button looking inert
+  // for however long Hemingway/Postiz takes to respond.
+  document.querySelectorAll('form.js-loading-form').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var btn = form.querySelector('button[type="submit"]');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = btn.getAttribute('data-loading-text') || 'Working…';
+    });
+  });
+</script>
 </body>
 </html>

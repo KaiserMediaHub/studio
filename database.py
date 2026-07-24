@@ -70,16 +70,25 @@ def init_db():
             hemingway_post_id INTEGER,                  -- Hemingway's own posts.id, so quick
                                                           -- posts can call /api/posts/<id>/rewrite
                                                           -- to regenerate (task #11)
+            clip_id           INTEGER,                   -- Degas clip this post's copy was
+                                                          -- generated from (project-sourced
+                                                          -- posts only, NULL for quick posts) --
+                                                          -- lets scheduling attach the matching
+                                                          -- exported video for YouTube/Instagram
             created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
         )
     """)
-    # Safe migration for existing DBs created before hemingway_post_id existed --
-    # same try/except pattern used for Degas's client_id column (task #6).
-    try:
-        conn.execute("ALTER TABLE posts ADD COLUMN hemingway_post_id INTEGER")
-    except sqlite3.OperationalError:
-        pass
+    # Safe migration for existing DBs created before hemingway_post_id/clip_id
+    # existed -- same try/except pattern used for Degas's client_id column (task #6).
+    for stmt in (
+        "ALTER TABLE posts ADD COLUMN hemingway_post_id INTEGER",
+        "ALTER TABLE posts ADD COLUMN clip_id INTEGER",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
 
     # Glossary system (Section 4) -- semi-automatic growth, client_id NULL
     # means a global entry. Status starts 'pending' (auto-detected candidate

@@ -1,3 +1,4 @@
+import io
 import os
 import calendar as cal_module
 from datetime import datetime, timedelta, timezone
@@ -335,8 +336,17 @@ def _build_project_transcript(degas_project_id, clips):
     followed by that clip's current (possibly human-edited) segment text,
     one segment per line. Only includes clips whose transcript actually
     exists yet (transcribed/exported) -- clips still uploading/transcribing/
-    erroring have nothing usable."""
+    erroring have nothing usable.
+
+    Returns (transcript_str, ordered_clip_ids) -- ordered_clip_ids[i] is the
+    Degas clip id behind the i-th section actually included in the
+    transcript. Hemingway's /api/generate streams back posts with a
+    positional 'index' matching split_transcript()'s section order, so
+    callers can zip that index against this list to know exactly which clip
+    a generated post's copy came from (task #27, Ben's ask 7/24: "I want the
+    copy to connect to its correlating video")."""
     sections = []
+    ordered_clip_ids = []
     eligible = [c for c in clips if c["status"] in ("transcribed", "exported")]
     for idx, clip in enumerate(eligible, start=1):
         title = os.path.splitext(clip.get("original_filename") or clip["filename"])[0]
@@ -352,7 +362,8 @@ def _build_project_transcript(degas_project_id, clips):
                 lines.append(text)
         if len(lines) > 1:
             sections.append("\n".join(lines))
-    return "\n\n".join(sections)
+            ordered_clip_ids.append(clip["id"])
+    return "\n\n".join(sections), ordered_clip_ids
 
 
 @app.route("/projects/<int:project_id>")
@@ -387,8 +398,22 @@ def project_detail(project_id):
     ).fetchone()
     db.close()
 
-    channels, channels_error = _get_schedulable_channels(linked)
+    # Media-capable set (not the text-only default) so YouTube/Instagram are
+    # real options here, same as the calendar's Add Post modal (task #18) --
+    # except here the video comes from the post's own linked clip rather than
+    # a manual upload (task #27, Ben's ask 7/24).
+    channels, channels_error = _get_schedulable_channels(linked, postiz_client.MEDIA_CAPABLE_IDENTIFIERS)
     can_write_posts = any(c["status"] in ("transcribed", "exported") for c in degas_clips)
+
+    clip_by_id = {c["id"]: c for c in degas_clips}
+    posts_view = []
+    for p in project_posts:
+        pd = dict(p)
+        clip = clip_by_id.get(pd.get("clip_id"))
+        pd["clip_exported"] = bool(clip and clip["status"] == "exported")
+        title_source = clip.get("original_filename") or clip.get("filename") if clip else None
+        pd["suggested_youtube_title"] = os.path.splitext(title_source)[0] if title_source else proj["name"]
+        posts_view.append(pd)
 
     return render_template(
         "project_detail.html",
@@ -399,11 +424,12 @@ def project_detail(project_id):
         degas_clips=degas_clips,
         degas_error=degas_error,
         export_styles=degas_client.EXPORT_STYLES,
-        project_posts=project_posts,
+        project_posts=posts_view,
         can_write_posts=can_write_posts,
         linked=linked,
         channels=channels,
         channels_error=channels_error,
+        media_required_identifiers=list(postiz_client.MEDIA_REQUIRED_IDENTIFIERS),
     )
 
 
@@ -727,7 +753,7 @@ def project_write_posts(project_id):
         db.close()
         return render_template("error.html", message=str(e)), 502
 
-    transcript = _build_project_transcript(proj["degas_project_id"], degas_proj.get("clips", []))
+    transcript, ordered_clip_ids = _build_project_transcript(proj["degas_project_id"], degas_proj.get("clips", []))
     if not transcript.strip():
         db.close()
         return render_template("error.html", message="No reviewed transcript text yet -- transcribe and review at least one clip before writing posts."), 400
@@ -746,10 +772,12 @@ def project_write_posts(project_id):
     )
     for p in result["posts"]:
         if p.get("id") and p.get("body"):
+            idx = p.get("index")
+            clip_id = ordered_clip_ids[idx] if isinstance(idx, int) and 0 <= idx < len(ordered_clip_ids) else None
             db.execute(
-                """INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id)
-                   VALUES (?, ?, 'project', ?, 'draft', ?)""",
-                (proj["client_id"], project_id, p["body"], p["id"])
+                """INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id)
+                   VALUES (?, ?, 'project', ?, 'draft', ?, ?)""",
+                (proj["client_id"], project_id, p["body"], p["id"], clip_id)
             )
     db.commit()
     db.close()
@@ -1028,10 +1056,21 @@ def quick_posts_schedule_to_postiz(post_id):
     """Real draft -> scheduled transition (task #13): pushes the post to
     Postiz on the channels you pick, at the time you pick, instead of just
     flipping a local status flag. Postiz becomes the source of truth for
-    whether/when this actually goes out."""
+    whether/when this actually goes out.
+
+    Task #27 (Ben's ask 7/24, "I want the copy to connect to its correlating
+    video"): project-sourced posts now carry the Degas clip_id they were
+    written from. If any selected channel needs media (YouTube/Instagram --
+    postiz_client.MEDIA_REQUIRED_IDENTIFIERS), this fetches that exact clip's
+    EXPORTED (captioned) video from Degas and uploads it to Postiz once,
+    reusing the same upload across every media-required channel in this
+    submission. If the clip isn't exported yet, this blocks with a clear
+    message rather than silently falling back to the uncaptioned original --
+    Ben's explicit call, not a judgment call made here."""
     client_id = request.form.get("client_id", type=int)
     channel_ids = request.form.getlist("channel_ids")
     send_at = request.form.get("send_at", "").strip()
+    youtube_title = request.form.get("youtube_title", "").strip()
 
     if not channel_ids or not send_at:
         return render_template("error.html", message="Pick at least one channel and a send time."), 400
@@ -1039,6 +1078,9 @@ def quick_posts_schedule_to_postiz(post_id):
     db = get_db()
     post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     linked = db.execute("SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)).fetchone()
+    proj = None
+    if post and post["project_id"]:
+        proj = db.execute("SELECT * FROM projects WHERE id = ?", (post["project_id"],)).fetchone()
     if not post or not linked:
         db.close()
         return render_template("error.html", message="Can't schedule -- no linked Postiz group for this client."), 400
@@ -1046,11 +1088,49 @@ def quick_posts_schedule_to_postiz(post_id):
     try:
         integrations = postiz_client.list_integrations(linked["postiz_group_id"])
         by_id = {i["id"]: i for i in integrations}
+
+        needs_media = any(
+            by_id.get(cid, {}).get("identifier") in postiz_client.MEDIA_REQUIRED_IDENTIFIERS
+            for cid in channel_ids
+        )
+        uploaded_media = None
+        if needs_media:
+            if not post["clip_id"]:
+                db.close()
+                return render_template("error.html", message="This post has no linked video -- only project-sourced posts (written from a reviewed clip) can schedule to YouTube/Instagram."), 400
+            if not proj or not proj["degas_project_id"]:
+                db.close()
+                return render_template("error.html", message="This post's project isn't linked to Degas -- can't fetch its video."), 400
+            try:
+                clip_status = degas_client.get_clip_status(proj["degas_project_id"], post["clip_id"])
+            except degas_client.DegasError as e:
+                db.close()
+                return render_template("error.html", message=str(e)), 502
+            if clip_status.get("status") != "exported":
+                db.close()
+                return render_template("error.html", message="This post's clip isn't exported yet -- export it in Caption Review before scheduling to YouTube/Instagram."), 400
+            try:
+                degas_resp = degas_client.download_clip(proj["degas_project_id"], post["clip_id"])
+                video_bytes = degas_resp.content
+            except degas_client.DegasError as e:
+                db.close()
+                return render_template("error.html", message=str(e)), 502
+            uploaded_media = postiz_client.upload_file(
+                io.BytesIO(video_bytes), f"clip_{post['clip_id']}.mp4", "video/mp4"
+            )
+
         posts_payload = []
         for cid in channel_ids:
             integ = by_id.get(cid)
-            if integ:
-                posts_payload.append(postiz_client.build_post_item(cid, integ["identifier"], post["caption"]))
+            if not integ:
+                continue
+            image = None
+            extra = None
+            if integ["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS and uploaded_media:
+                image = [{"id": uploaded_media["id"], "path": uploaded_media["path"]}]
+            if integ["identifier"] == "youtube":
+                extra = {"title": youtube_title}
+            posts_payload.append(postiz_client.build_post_item(cid, integ["identifier"], post["caption"], image=image, extra=extra))
         if not posts_payload:
             db.close()
             return render_template("error.html", message="None of the selected channels could be matched to a connected integration."), 400

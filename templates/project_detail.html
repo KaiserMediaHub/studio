@@ -102,7 +102,8 @@
   .qp{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
   .qp-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
   .qp-caption{white-space:pre-wrap;font-size:14px;line-height:1.5;background:var(--surface-2);
-    border-radius:8px;padding:12px 14px;margin-bottom:10px;width:100%;border:1px solid var(--border);font-family:inherit;}
+    border-radius:8px;padding:12px 14px;margin-bottom:10px;width:100%;border:1px solid var(--border);
+    font-family:inherit;color:var(--text);}
   .status-draft{background:var(--surface-2);color:var(--text-dim);}
   .status-scheduled{background:#3a2c10;color:var(--sched);}
   .status-published{background:#0f2b21;color:var(--good);}
@@ -239,7 +240,7 @@
       <div class="card-title">Write Posts</div>
       {% if not project_posts %}
         {% if can_write_posts %}
-          <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}">
+          <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form">
             <div class="context-field">
               <label>Context (optional) — anything Hemingway should keep in mind on topic/angle</label>
               <textarea name="context" placeholder="e.g. this batch is about the new studio opening, keep tone celebratory, avoid pricing details..."></textarea>
@@ -261,7 +262,7 @@
                   <option value="long">long</option>
                 </select>
               </div>
-              <button class="btn btn-primary btn-small" type="submit">Write posts from reviewed transcript</button>
+              <button class="btn btn-primary btn-small" type="submit" data-loading-text="Writing posts…">Write posts from reviewed transcript</button>
             </div>
           </form>
         {% else %}
@@ -291,26 +292,37 @@
             </form>
             {% endif %}
           </div>
-          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" class="regen-box">
+          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" class="regen-box js-loading-form">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">
             <label>Don't like it? Add feedback and regenerate</label>
             <textarea name="instruction" placeholder="e.g. make it punchier, mention the new location, cut the last line..."></textarea>
-            <button class="btn btn-primary btn-small" type="submit">Regenerate</button>
+            <button class="btn btn-primary btn-small" type="submit" data-loading-text="Regenerating…">Regenerate</button>
           </form>
           {% if p.status == 'draft' and channels %}
-          <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+          <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" class="js-loading-form" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">
             <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px;">Schedule to Postiz</div>
+            {% if p.clip_id and not p.clip_exported %}
+              <div class="hint-banner">This post's clip isn't exported yet — export it above to unlock YouTube/Instagram here. Text-only channels are still available below.</div>
+            {% endif %}
             <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;">
               {% for c in channels %}
-                <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
-                  <input type="checkbox" name="channel_ids" value="{{ c.id }}"> {{ c.name }} <span style="color:var(--text-dim);font-size:11px;">({{ c.identifier }})</span>
-                </label>
+                {% if c.identifier not in media_required_identifiers or p.clip_exported %}
+                  <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" name="channel_ids" value="{{ c.id }}"> {{ c.name }} <span style="color:var(--text-dim);font-size:11px;">({{ c.identifier }})</span>
+                  </label>
+                {% endif %}
               {% endfor %}
             </div>
+            {% if p.clip_exported %}
+            <div style="margin-bottom:10px;">
+              <label style="display:block;font-size:12px;color:var(--text-dim);margin-bottom:4px;">YouTube title (only used if YouTube is checked)</label>
+              <input type="text" name="youtube_title" value="{{ p.suggested_youtube_title }}" style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;width:100%;">
+            </div>
+            {% endif %}
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="datetime-local" name="send_at" required style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;">
-              <button class="btn btn-primary btn-small" type="submit">Schedule →</button>
+              <button class="btn btn-primary btn-small" type="submit" data-loading-text="Scheduling…">Schedule →</button>
             </div>
           </form>
           {% elif p.status == 'draft' %}
@@ -428,6 +440,21 @@
       });
     }, 5000);
   })();
+</script>
+<script>
+  // Write Posts / Regenerate / Schedule are all normal synchronous POSTs that
+  // end in a full page reload -- there's no AJAX progress to show. This just
+  // gives immediate feedback that the click registered (Ben's ask, 7/24:
+  // "I clicked Write Posts but nothing seemed to happen") instead of leaving
+  // the button looking inert for however long Hemingway/Postiz takes.
+  document.querySelectorAll('form.js-loading-form').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var btn = form.querySelector('button[type="submit"]');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = btn.getAttribute('data-loading-text') || 'Working…';
+    });
+  });
 </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Add Context box + more visible Regenerate on Write Post screens"
+git commit -m "Fix caption text color, add loading indicator, link posts to their clip's exported video for YouTube/IG scheduling"
 git push
 
 echo.

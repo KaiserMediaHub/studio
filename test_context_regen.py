@@ -107,7 +107,7 @@ def test_project_write_posts_forwards_context():
     degas_client.get_project = fake_get_project
 
     def fake_build_transcript(degas_project_id, clips):
-        return "VIDEO: 01 - a.mp4\nSome real transcript text."
+        return "VIDEO: 01 - a.mp4\nSome real transcript text.", [1]
     app_module._build_project_transcript = fake_build_transcript
 
     def fake_generate_from_transcript(client_id, transcript, style="conversational", length="short", context="", name=""):
