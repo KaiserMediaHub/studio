@@ -9,6 +9,7 @@ from database import init_db, get_db
 import hemingway_client
 import degas_client
 import glossary
+import postiz_client
 
 # ── Config ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -410,6 +411,80 @@ def quick_posts_edit(post_id):
     db.commit()
     db.close()
     return redirect(url_for("quick_posts_view", client_id=client_id))
+
+
+# ── Postiz setup (task #12) ──────────────────────────────────────────────────
+@app.route("/clients/<int:client_id>/postiz-setup")
+def postiz_setup_view(client_id):
+    """Links a Hemingway client to a Postiz customer group. Real scheduling
+    (picking a channel + send time and pushing a post) lands with the
+    calendar (task #13) -- this screen is just the one-time account linkage
+    each client needs before that can work."""
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == client_id), None)
+    if not active_client:
+        return redirect(url_for("dashboard"))
+
+    connected = None
+    groups = []
+    postiz_error = None
+    try:
+        connected = postiz_client.is_connected()
+        if connected:
+            groups = postiz_client.list_groups()
+    except postiz_client.PostizError as e:
+        postiz_error = str(e)
+
+    db = get_db()
+    linked = db.execute(
+        "SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)
+    ).fetchone()
+    db.close()
+
+    integrations = []
+    integrations_error = None
+    if linked:
+        try:
+            integrations = postiz_client.list_integrations(linked["postiz_group_id"])
+        except postiz_client.PostizError as e:
+            integrations_error = str(e)
+
+    return render_template(
+        "postiz_setup.html",
+        clients=clients,
+        active_client=active_client,
+        connected=connected,
+        postiz_error=postiz_error,
+        groups=groups,
+        linked=linked,
+        integrations=integrations,
+        integrations_error=integrations_error,
+    )
+
+
+@app.route("/clients/<int:client_id>/postiz-setup/link", methods=["POST"])
+def postiz_setup_link(client_id):
+    group_id = request.form.get("group_id", "").strip()
+    group_name = request.form.get("group_name", "").strip()
+    if not group_id:
+        return redirect(url_for("postiz_setup_view", client_id=client_id))
+
+    db = get_db()
+    db.execute(
+        """INSERT INTO client_postiz_groups (client_id, postiz_group_id, postiz_group_name, updated_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(client_id) DO UPDATE SET
+             postiz_group_id = excluded.postiz_group_id,
+             postiz_group_name = excluded.postiz_group_name,
+             updated_at = CURRENT_TIMESTAMP""",
+        (client_id, group_id, group_name)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("postiz_setup_view", client_id=client_id))
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

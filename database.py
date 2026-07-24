@@ -71,6 +71,19 @@ def init_db():
     # Glossary system (Section 4) -- semi-automatic growth, client_id NULL
     # means a global entry. Status starts 'pending' (auto-detected candidate
     # from a Caption Review edit) and needs one click to 'confirmed'.
+    # Postiz customer-group linkage (task #12) -- one Hemingway client maps to
+    # one Postiz group (customer). This is genuinely new Studio-owned data:
+    # Hemingway has no concept of Postiz, and Postiz's groups are identified
+    # by its own opaque IDs, not Hemingway's client IDs.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS client_postiz_groups (
+            client_id          INTEGER PRIMARY KEY,   -- Hemingway's client id
+            postiz_group_id    TEXT NOT NULL,
+            postiz_group_name  TEXT,
+            updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS glossary_terms (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
