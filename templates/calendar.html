@@ -29,31 +29,63 @@
     color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
   .client-item:hover{background:var(--surface-2);}
   .client-item.active{background:var(--accent-soft);color:var(--accent);}
-  .main{flex:1;padding:32px 40px;max-width:900px;}
+  .main{flex:1;padding:32px 40px;max-width:1180px;}
   h1{font-size:26px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
   .sub a{color:var(--accent);text-decoration:none;}
   .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
-  .month-nav{display:flex;align-items:center;gap:16px;margin-bottom:20px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+  .month-nav{display:flex;align-items:center;gap:16px;}
   .month-nav a{color:var(--accent);text-decoration:none;font-size:13px;font-weight:700;}
   .month-label{font-size:16px;font-weight:700;}
+  .btn-add{background:var(--accent);color:#151515;border:none;border-radius:8px;
+    padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;}
   .error-banner{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
     padding:12px 16px;font-size:13px;margin-bottom:20px;}
-  .day{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
-  .day-date{font-weight:700;font-size:14px;margin-bottom:10px;}
-  .post-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
-    padding:8px 0;border-top:1px solid var(--border);}
-  .post-row:first-child{border-top:none;}
-  .post-time{font-size:12px;color:var(--text-dim);width:48px;flex-shrink:0;}
-  .post-content{flex:1;font-size:13px;line-height:1.4;white-space:pre-wrap;}
-  .post-meta{font-size:11px;color:var(--text-dim);margin-top:4px;}
-  .state-pill{font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;text-transform:uppercase;
-    flex-shrink:0;white-space:nowrap;}
-  .state-queue{background:#3a2c10;color:var(--sched);}
-  .state-published{background:#0f2b21;color:var(--good);}
-  .state-error{background:#3a1414;color:var(--danger);}
-  .state-draft{background:var(--surface-2);color:var(--text-dim);}
-  .empty{color:var(--text-dim);font-size:14px;}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--border);
+    border-radius:var(--radius);overflow:hidden;}
+  .grid-header{background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border);}
+  .day-cell{background:var(--surface);border-right:1px solid var(--border);border-top:1px solid var(--border);
+    min-height:110px;padding:8px;position:relative;}
+  .day-cell.other-month{background:#131620;color:var(--text-dim);}
+  .day-cell.today .day-num{color:var(--accent);}
+  .day-num{font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-dim);}
+  .day-cell.other-month .day-num{color:#454b5c;}
+  .day-add{position:absolute;top:6px;right:6px;background:none;border:1px solid var(--border);
+    color:var(--text-dim);border-radius:6px;width:20px;height:20px;font-size:13px;line-height:1;
+    cursor:pointer;display:none;align-items:center;justify-content:center;}
+  .day-cell:hover .day-add{display:flex;}
+  .day-add:hover{border-color:var(--accent);color:var(--accent);}
+  .post-pill{font-size:10px;border-radius:5px;padding:3px 5px;margin-bottom:3px;line-height:1.3;
+    cursor:default;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .post-pill.state-queue{background:#3a2c10;color:var(--sched);}
+  .post-pill.state-published{background:#0f2b21;color:var(--good);}
+  .post-pill.state-error{background:#3a1414;color:var(--danger);}
+  .post-pill.state-draft{background:var(--surface-2);color:var(--text-dim);}
+
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;
+    align-items:center;justify-content:center;}
+  .overlay.open{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    width:460px;max-width:92vw;max-height:88vh;overflow-y:auto;padding:26px;}
+  .modal h2{font-size:18px;margin:0 0 18px;}
+  .modal .field{margin-bottom:16px;}
+  .modal label{display:block;font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:6px;}
+  .modal textarea, .modal input[type=time], .modal input[type=date]{
+    width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;
+    padding:10px 12px;color:var(--text);font-size:14px;font-family:inherit;}
+  .modal textarea{min-height:100px;resize:vertical;}
+  .channel-list{display:flex;flex-direction:column;gap:8px;}
+  .channel-opt{display:flex;align-items:center;gap:10px;background:var(--surface-2);
+    border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;cursor:pointer;}
+  .channel-opt input{margin:0;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px;}
+  .btn{border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;}
+  .btn-primary{background:var(--accent);color:#151515;}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .empty-channels{color:var(--text-dim);font-size:13px;}
 </style>
 </head>
 <body>
@@ -73,39 +105,108 @@
     <h1>Calendar</h1>
     <div class="sub"><a href="{{ url_for('dashboard', client_id=active_client.id) }}">← Back to {{ active_client.name }}</a></div>
 
-    <div class="month-nav">
-      <a href="{{ url_for('calendar_view', client_id=active_client.id, month=prev_month) }}">← Prev</a>
-      <span class="month-label">{{ month_label }}</span>
-      <a href="{{ url_for('calendar_view', client_id=active_client.id, month=next_month) }}">Next →</a>
+    <div class="toolbar">
+      <div class="month-nav">
+        <a href="{{ url_for('calendar_view', client_id=active_client.id, month=prev_month) }}">← Prev</a>
+        <span class="month-label">{{ month_label }}</span>
+        <a href="{{ url_for('calendar_view', client_id=active_client.id, month=next_month) }}">Next →</a>
+      </div>
+      <button class="btn-add" type="button" onclick="openModal('{{ today_str }}')">+ Add Post</button>
     </div>
 
     {% if postiz_error %}
       <div class="error-banner">{{ postiz_error }}</div>
     {% endif %}
 
-    {% if days %}
-      {% for day_key in days.keys()|sort %}
-        <div class="day">
-          <div class="day-date">{{ day_key }}</div>
-          {% for p in days[day_key] %}
-            <div class="post-row">
-              <div class="post-time">{{ p.time }}</div>
-              <div style="flex:1;">
-                <div class="post-content">{{ p.content }}</div>
-                <div class="post-meta">
-                  {{ p.channel_name }} ({{ p.channel_platform }})
-                  {% if p.release_url %} · <a href="{{ p.release_url }}" target="_blank" style="color:var(--accent);">view live →</a>{% endif %}
-                </div>
-              </div>
-              <span class="state-pill state-{{ p.state|lower }}">{{ p.state }}</span>
-            </div>
+    <div class="grid">
+      {% for wd in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}
+        <div class="grid-header">{{ wd }}</div>
+      {% endfor %}
+      {% for week in weeks %}
+        {% for d in week %}
+          {% set d_key = d.strftime('%Y-%m-%d') %}
+          <div class="day-cell {% if d.month != current_month %}other-month{% endif %} {% if d_key == today_str %}today{% endif %}">
+            <div class="day-num">{{ d.day }}</div>
+            {% if channels %}
+              <button class="day-add" type="button" onclick="openModal('{{ d_key }}')" title="Add post">+</button>
+            {% endif %}
+            {% for p in days.get(d_key, []) %}
+              <div class="post-pill state-{{ p.state|lower }}" title="{{ p.content }}">{{ p.time }} {{ p.channel_name }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="post-overlay">
+  <div class="modal">
+    <h2>Create Post</h2>
+    {% if channels %}
+    <form method="POST" action="{{ url_for('calendar_create_post', client_id=active_client.id) }}" onsubmit="return combineDateTime();">
+      <input type="hidden" name="month_key" value="{{ month_key }}">
+      <input type="hidden" name="send_at" id="send_at">
+
+      <div class="field">
+        <label>Select one or more channels</label>
+        <div class="channel-list">
+          {% for c in channels %}
+            <label class="channel-opt">
+              <input type="checkbox" name="channel_ids" value="{{ c.id }}"> {{ c.name }} <span style="color:var(--text-dim);">({{ c.identifier }})</span>
+            </label>
           {% endfor %}
         </div>
-      {% endfor %}
-    {% elif not postiz_error %}
-      <div class="empty">Nothing scheduled or published for {{ active_client.name }} this month.</div>
+      </div>
+
+      <div class="field">
+        <label>Date &amp; time</label>
+        <div style="display:flex;gap:8px;">
+          <input type="date" id="post-date" required>
+          <input type="time" id="post-time" value="09:00" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Caption</label>
+        <textarea name="caption" required placeholder="Write the caption..."></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Post</button>
+      </div>
+    </form>
+    {% else %}
+      <p class="empty-channels">
+        {% if channels_error %}{{ channels_error }}{% else %}No schedulable channels connected for {{ active_client.name }} yet -- check <a href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}" style="color:var(--accent);">Postiz Setup</a>.{% endif %}
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button>
+      </div>
     {% endif %}
   </div>
 </div>
+
+<script>
+function openModal(dateStr) {
+  document.getElementById('post-overlay').classList.add('open');
+  var dateInput = document.getElementById('post-date');
+  if (dateInput) { dateInput.value = dateStr; }
+}
+function closeModal() {
+  document.getElementById('post-overlay').classList.remove('open');
+}
+function combineDateTime() {
+  var d = document.getElementById('post-date').value;
+  var t = document.getElementById('post-time').value;
+  if (!d || !t) { return false; }
+  document.getElementById('send_at').value = d + 'T' + t;
+  return true;
+}
+document.getElementById('post-overlay').addEventListener('click', function(e) {
+  if (e.target === this) { closeModal(); }
+});
+</script>
 </body>
 </html>

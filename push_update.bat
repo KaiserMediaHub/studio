@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Task #7: phase tracking (Studio reads Degas status, owns Drafting/Post Review)"
+git commit -m "Calendar: full month grid, click-to-add-post, channel selection"
 git push
 
 echo.

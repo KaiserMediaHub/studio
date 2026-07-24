@@ -313,6 +313,25 @@ QUICK_POST_LENGTHS = ["super-short", "short", "medium", "long"]
 QUICK_POST_TRANSITIONS = {"scheduled": "published"}
 
 
+def _get_schedulable_channels(linked):
+    """Shared by quick_posts_view and calendar_view -- returns (channels,
+    channels_error) for whichever client's Postiz group is passed in,
+    filtered to identifiers Studio actually knows how to schedule to
+    (postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS). Factored out so both
+    screens can't drift on what "available channels" means."""
+    if not linked:
+        return [], None
+    try:
+        all_integrations = postiz_client.list_integrations(linked["postiz_group_id"])
+        channels = [
+            i for i in all_integrations
+            if i["identifier"] in postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS and not i.get("disabled")
+        ]
+        return channels, None
+    except postiz_client.PostizError as e:
+        return [], str(e)
+
+
 @app.route("/clients/<int:client_id>/quick-posts")
 def quick_posts_view(client_id):
     try:
@@ -333,20 +352,7 @@ def quick_posts_view(client_id):
     ).fetchone()
     db.close()
 
-    # Channels available to schedule a draft to -- only fetched if this
-    # client has a linked Postiz group, and filtered to what Studio can
-    # actually push to today (postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS).
-    channels = []
-    channels_error = None
-    if linked:
-        try:
-            all_integrations = postiz_client.list_integrations(linked["postiz_group_id"])
-            channels = [
-                i for i in all_integrations
-                if i["identifier"] in postiz_client.SUPPORTED_SCHEDULE_IDENTIFIERS and not i.get("disabled")
-            ]
-        except postiz_client.PostizError as e:
-            channels_error = str(e)
+    channels, channels_error = _get_schedulable_channels(linked)
 
     return render_template(
         "quick_posts.html",
@@ -498,7 +504,12 @@ def calendar_view(client_id):
     """Single-client calendar (task #13, Section 6: 'strictly single-client
     view, no cross-client rollup'). Reads Postiz's own /posts endpoint live
     for the selected month -- Postiz's `state` field (QUEUE/PUBLISHED/ERROR/
-    DRAFT) is the real status, not something Studio tracks separately."""
+    DRAFT) is the real status, not something Studio tracks separately.
+
+    Renders a full month grid (Sun-Sat, always 6 weeks) even when empty, and
+    every day cell can open the create-post form scoped to that date -- Ben's
+    ask (7/24) after seeing Hey Orca's calendar, where "Add Post" lives on the
+    calendar itself rather than needing a separate Quick Posts screen first."""
     try:
         clients = hemingway_client.get_clients()
     except hemingway_client.HemingwayError as e:
@@ -513,6 +524,7 @@ def calendar_view(client_id):
         year, month = map(int, month_str.split("-"))
     except ValueError:
         year, month = today.year, today.month
+    month_key = f"{year:04d}-{month:02d}"
 
     start = datetime(year, month, 1, tzinfo=timezone.utc)
     last_day = cal_module.monthrange(year, month)[1]
@@ -520,11 +532,18 @@ def calendar_view(client_id):
     prev_month = (start - timedelta(days=1)).strftime("%Y-%m")
     next_month = (end + timedelta(days=1)).strftime("%Y-%m")
 
+    # Sun-Sat grid, always full weeks (padded with adjacent-month dates),
+    # same shape as Hey Orca's month view -- firstweekday=6 makes Sunday the
+    # first column.
+    weeks = cal_module.Calendar(firstweekday=6).monthdatescalendar(year, month)
+
     db = get_db()
     linked = db.execute(
         "SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)
     ).fetchone()
     db.close()
+
+    channels, channels_error = _get_schedulable_channels(linked)
 
     days = {}
     postiz_error = None
@@ -557,12 +576,68 @@ def calendar_view(client_id):
         clients=clients,
         active_client=active_client,
         linked=linked,
+        channels=channels,
+        channels_error=channels_error,
         days=days,
+        weeks=weeks,
+        current_month=month,
+        today_str=today.strftime("%Y-%m-%d"),
         postiz_error=postiz_error,
         month_label=start.strftime("%B %Y"),
+        month_key=month_key,
         prev_month=prev_month,
         next_month=next_month,
     )
+
+
+@app.route("/clients/<int:client_id>/calendar/create-post", methods=["POST"])
+def calendar_create_post(client_id):
+    """Direct "Add Post" from the calendar (task #13 follow-up, 7/24): types
+    a caption and picks channels right on the calendar, like Hey Orca's
+    'Create Post(s)' modal, instead of going through Quick Posts first. No
+    Hemingway involved here -- this is for a caption you're writing yourself;
+    Quick Posts is still the path when you want Hemingway's help drafting it."""
+    caption = request.form.get("caption", "").strip()
+    channel_ids = request.form.getlist("channel_ids")
+    send_at = request.form.get("send_at", "").strip()
+    month_key = request.form.get("month_key", "")
+
+    if not caption or not channel_ids or not send_at:
+        return render_template("error.html", message="A caption, at least one channel, and a send time are all required."), 400
+
+    db = get_db()
+    linked = db.execute("SELECT * FROM client_postiz_groups WHERE client_id = ?", (client_id,)).fetchone()
+    if not linked:
+        db.close()
+        return render_template("error.html", message="This client isn't linked to a Postiz group yet -- set that up first."), 400
+
+    try:
+        integrations = postiz_client.list_integrations(linked["postiz_group_id"])
+        by_id = {i["id"]: i for i in integrations}
+        posts_payload = []
+        for cid in channel_ids:
+            integ = by_id.get(cid)
+            if integ:
+                posts_payload.append(postiz_client.build_post_item(cid, integ["identifier"], caption))
+        if not posts_payload:
+            db.close()
+            return render_template("error.html", message="None of the selected channels could be matched to a connected integration."), 400
+
+        date_iso = f"{send_at}:00.000Z" if len(send_at) == 16 else send_at
+        result = postiz_client.create_post("schedule", date_iso, posts_payload)
+    except postiz_client.PostizError as e:
+        db.close()
+        return render_template("error.html", message=str(e)), 502
+
+    postiz_ids = ",".join(str(r.get("postId")) for r in result)
+    db.execute(
+        """INSERT INTO posts (client_id, source, caption, status, postiz_post_id, scheduled_for)
+           VALUES (?, 'quick', ?, 'scheduled', ?, ?)""",
+        (client_id, caption, postiz_ids, send_at)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("calendar_view", client_id=client_id, month=month_key))
 
 
 @app.route("/clients/<int:client_id>/postiz-setup")
