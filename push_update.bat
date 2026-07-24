@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Fix upload: wait for all files to finish before reloading, not just the first"
+git commit -m "Add Review All: bulk transcript review/save across every clip in a project"
 git push
 
 echo.

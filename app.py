@@ -532,6 +532,87 @@ def clip_review_save(project_id, clip_id):
     return redirect(url_for("project_detail", project_id=project_id))
 
 
+@app.route("/projects/<int:project_id>/review-all")
+def project_review_all(project_id):
+    """Every transcribed/exported clip's transcript in one view, matching
+    Degas's own editor-all page (Ben's ask, 7/24) -- built as a genuine
+    Studio screen against Degas's real per-clip segments route + its bulk
+    /save-all route, not a redirect to Degas's own UI."""
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj:
+        return redirect(url_for("dashboard"))
+
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == proj["client_id"]), None)
+
+    clips_data = []
+    degas_error = None
+    if proj["degas_project_id"]:
+        try:
+            degas_proj = degas_client.get_project(proj["degas_project_id"])
+            eligible = [c for c in degas_proj.get("clips", []) if c["status"] in ("transcribed", "exported")]
+            for clip in eligible:
+                try:
+                    seg_data = degas_client.get_clip_segments(proj["degas_project_id"], clip["id"])
+                except degas_client.DegasError as e:
+                    degas_error = str(e)
+                    continue
+                clips_data.append({
+                    "clip_id": clip["id"],
+                    "filename": clip.get("original_filename") or clip["filename"],
+                    "segments": seg_data.get("current") or [],
+                })
+        except degas_client.DegasError as e:
+            degas_error = str(e)
+
+    return render_template(
+        "review_all.html",
+        clients=clients,
+        active_client=active_client,
+        project=proj,
+        clips_data=clips_data,
+        degas_error=degas_error,
+    )
+
+
+@app.route("/projects/<int:project_id>/review-all/save", methods=["POST"])
+def project_review_all_save(project_id):
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return redirect(url_for("dashboard"))
+
+    clip_ids = request.form.getlist("clip_id")
+    payload = []
+    for clip_id_str in clip_ids:
+        clip_id = int(clip_id_str)
+        try:
+            seg_data = degas_client.get_clip_segments(proj["degas_project_id"], clip_id)
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+        current = seg_data.get("current") or []
+        texts = request.form.getlist(f"segment_text_{clip_id}")
+        merged = []
+        for i, seg in enumerate(current):
+            text = texts[i] if i < len(texts) else seg.get("text", "")
+            merged.append({"start": seg.get("start", 0), "end": seg.get("end", 0), "text": text})
+        payload.append({"clip_id": clip_id, "segments": merged})
+
+    if payload:
+        try:
+            degas_client.save_all_clip_segments(proj["degas_project_id"], payload)
+        except degas_client.DegasError as e:
+            return render_template("error.html", message=str(e)), 502
+
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
 @app.route("/projects/<int:project_id>/clips/<int:clip_id>/export", methods=["POST"])
 def clip_export(project_id, clip_id):
     style = request.form.get("style", "1")

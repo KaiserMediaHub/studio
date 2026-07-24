@@ -182,6 +182,7 @@
           <form method="POST" action="{{ url_for('project_transcribe_all', project_id=project.id) }}">
             <button class="btn btn-ghost btn-small" type="submit">Transcribe All</button>
           </form>
+          <a class="btn btn-ghost btn-small" style="text-decoration:none;display:inline-block;" href="{{ url_for('project_review_all', project_id=project.id) }}">Review All</a>
           <form method="POST" action="{{ url_for('project_export_all', project_id=project.id) }}" style="display:inline-flex;gap:6px;align-items:center;">
             <select name="style" class="style-select">
               {% for key, name in export_styles.items() %}<option value="{{ key }}">{{ name }}</option>{% endfor %}

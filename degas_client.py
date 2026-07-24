@@ -195,6 +195,19 @@ def trigger_export_all(degas_project_id, style="1"):
     _request("POST", f"/projects/{degas_project_id}/export-all", data={"style": style})
 
 
+def save_all_clip_segments(degas_project_id, clips_payload):
+    """Bulk save for the 'Review All' screen (task #23): saves edited
+    segment text for every clip in one call via Degas's real /save-all
+    route (same one its own editor-all page uses), rather than looping a
+    separate save_clip_segments() call per clip. clips_payload is
+    [{"clip_id": int, "segments": [{"start","end","text"}, ...]}, ...]."""
+    resp = _request(
+        "POST", f"/projects/{degas_project_id}/save-all",
+        json={"clips": clips_payload},
+    )
+    return resp.json()
+
+
 def download_clip(degas_project_id, clip_id):
     """Returns the raw streaming response for a captioned clip's video file,
     for Studio's own download route to proxy through to the browser (the
