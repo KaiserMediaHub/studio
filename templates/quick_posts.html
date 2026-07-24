@@ -129,6 +129,10 @@
           <label>What's this post about? (Hemingway writes the caption from this)</label>
           <textarea name="notes" required placeholder="Describe what's in the folder and the point you want to make..."></textarea>
         </div>
+        <div class="field">
+          <label>Context (optional) — anything Hemingway should keep in mind on topic/angle</label>
+          <textarea name="context" placeholder="e.g. this is for a product launch, avoid mentioning pricing, tie back to the Q3 campaign..."></textarea>
+        </div>
         <div class="row2">
           <div class="field">
             <label>Style</label>
@@ -160,10 +164,11 @@
           <button class="btn btn-ghost btn-small" type="submit" style="margin-bottom:12px;">Save edit</button>
         </form>
         <div class="qp-actions">
-          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}">
+          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" style="display:block;width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">
-            <input type="text" name="instruction" placeholder="optional: tell Hemingway what to change" style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;width:220px;">
-            <button class="btn btn-ghost btn-small" type="submit">Regenerate</button>
+            <label style="display:block;font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Don't like it? Add feedback and regenerate</label>
+            <textarea name="instruction" placeholder="e.g. make it punchier, mention the new location, cut the last line..." style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%;min-height:44px;resize:vertical;font-family:inherit;margin-bottom:8px;"></textarea>
+            <button class="btn btn-primary btn-small" type="submit">Regenerate</button>
           </form>
           {% if p.status == 'scheduled' %}
           <form method="POST" action="{{ url_for('quick_posts_advance', post_id=p.id) }}">

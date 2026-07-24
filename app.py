@@ -710,6 +710,7 @@ def project_write_posts(project_id):
     Module' step of the pipeline Ben asked for (7/24)."""
     style = request.form.get("style", "conversational")
     length = request.form.get("length", "short")
+    context = request.form.get("context", "").strip()
 
     db = get_db()
     proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -733,7 +734,7 @@ def project_write_posts(project_id):
 
     try:
         result = hemingway_client.generate_from_transcript(
-            proj["client_id"], transcript, style=style, length=length, name=proj["name"]
+            proj["client_id"], transcript, style=style, length=length, context=context, name=proj["name"]
         )
     except hemingway_client.HemingwayError as e:
         db.close()
@@ -963,12 +964,13 @@ def quick_posts_new(client_id):
     notes = request.form.get("notes", "").strip()
     style = request.form.get("style", "conversational")
     length = request.form.get("length", "short")
+    context = request.form.get("context", "").strip()
 
     if not notes:
         return render_template("error.html", message="Notes can't be empty -- Hemingway needs something to write about."), 400
 
     try:
-        result = hemingway_client.generate_single_post(client_id, notes, style, length)
+        result = hemingway_client.generate_single_post(client_id, notes, style, length, context)
     except hemingway_client.HemingwayError as e:
         return render_template("error.html", message=str(e)), 502
 

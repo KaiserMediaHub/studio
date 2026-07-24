@@ -75,6 +75,17 @@
   .progress-bar-fill{background:var(--accent);height:100%;width:0%;}
   .style-select{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
     padding:6px 8px;color:var(--text);font-size:12px;}
+  .context-field{margin-bottom:10px;}
+  .context-field label{display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:6px;}
+  .context-field textarea{display:block;width:100%;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit;min-height:56px;resize:vertical;}
+  .regen-box{display:block;width:100%;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:8px;padding:10px 12px;margin-top:10px;}
+  .regen-box label{display:block;font-size:11px;font-weight:700;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;}
+  .regen-box textarea{display:block;width:100%;background:var(--surface);border:1px solid var(--border);
+    border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit;
+    min-height:44px;resize:vertical;margin-bottom:8px;}
   .clip-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
     padding:12px 0;border-bottom:1px solid var(--border);}
   .clip-row:last-child{border-bottom:none;}
@@ -229,6 +240,10 @@
       {% if not project_posts %}
         {% if can_write_posts %}
           <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}">
+            <div class="context-field">
+              <label>Context (optional) — anything Hemingway should keep in mind on topic/angle</label>
+              <textarea name="context" placeholder="e.g. this batch is about the new studio opening, keep tone celebratory, avoid pricing details..."></textarea>
+            </div>
             <div style="display:flex;gap:10px;align-items:center;">
               <div class="field">
                 <select name="style">
@@ -269,11 +284,6 @@
             <button class="btn btn-ghost btn-small" type="submit" style="margin-bottom:10px;">Save edit</button>
           </form>
           <div class="qp-actions">
-            <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}">
-              <input type="hidden" name="client_id" value="{{ active_client.id }}">
-              <input type="text" name="instruction" placeholder="optional: tell Hemingway what to change" style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;width:220px;">
-              <button class="btn btn-ghost btn-small" type="submit">Regenerate</button>
-            </form>
             {% if p.status == 'scheduled' %}
             <form method="POST" action="{{ url_for('quick_posts_advance', post_id=p.id) }}">
               <input type="hidden" name="client_id" value="{{ active_client.id }}">
@@ -281,6 +291,12 @@
             </form>
             {% endif %}
           </div>
+          <form method="POST" action="{{ url_for('quick_posts_regenerate', post_id=p.id) }}" class="regen-box">
+            <input type="hidden" name="client_id" value="{{ active_client.id }}">
+            <label>Don't like it? Add feedback and regenerate</label>
+            <textarea name="instruction" placeholder="e.g. make it punchier, mention the new location, cut the last line..."></textarea>
+            <button class="btn btn-primary btn-small" type="submit">Regenerate</button>
+          </form>
           {% if p.status == 'draft' and channels %}
           <form method="POST" action="{{ url_for('quick_posts_schedule_to_postiz', post_id=p.id) }}" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">

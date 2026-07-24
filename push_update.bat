@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Add video preview next to transcript in Review and Review All screens"
+git commit -m "Add Context box + more visible Regenerate on Write Post screens"
 git push
 
 echo.
