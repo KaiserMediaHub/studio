@@ -106,6 +106,21 @@ def init_db():
         )
     """)
 
+    # Cloud KMG (Nextcloud) linkage (task #28) -- one Hemingway client maps
+    # to one top-level Nextcloud folder name, e.g. 'Epiphany' -> /Epiphany.
+    # Studio auto-creates /Epiphany/incoming and /Epiphany/captioned inside
+    # it (ensure_folder()) the first time this is saved -- team members drop
+    # raw footage in /incoming, Studio pushes finished exports to
+    # /captioned. Same "Studio owns linkage the other service doesn't know
+    # about" pattern as client_postiz_groups above.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS client_nextcloud_folders (
+            client_id      INTEGER PRIMARY KEY,   -- Hemingway's client id
+            folder_name    TEXT NOT NULL,
+            updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS glossary_terms (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,

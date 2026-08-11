@@ -1,5 +1,6 @@
 import io
 import os
+import uuid
 import calendar as cal_module
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,7 @@ import hemingway_client
 import degas_client
 import glossary
 import postiz_client
+import nextcloud_client
 
 # ── Config ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -150,6 +152,12 @@ def dashboard():
 # meant a riskier hand-edit to an existing live route instead of a pure
 # append -- see degas_client.delete_clip_media()'s docstring.
 CLEANUP_THRESHOLD_DAYS = 45
+
+# Chunk size for Studio's own server-to-server Nextcloud -> Degas import
+# (task #28) -- matches the browser uploader's CHUNK_SIZE (project_detail.html)
+# rather than reinventing a number, since that size is the one already proven
+# to clear Degas's own upload path without issues.
+NEXTCLOUD_IMPORT_CHUNK_SIZE = 8 * 1024 * 1024
 
 
 def _get_cleanup_candidates():
@@ -415,6 +423,8 @@ def project_detail(project_id):
         pd["suggested_youtube_title"] = os.path.splitext(title_source)[0] if title_source else proj["name"]
         posts_view.append(pd)
 
+    nextcloud_folder, nextcloud_files, nextcloud_error = _get_nextcloud_incoming_files(proj["client_id"])
+
     return render_template(
         "project_detail.html",
         clients=clients,
@@ -430,6 +440,9 @@ def project_detail(project_id):
         channels=channels,
         channels_error=channels_error,
         media_required_identifiers=list(postiz_client.MEDIA_REQUIRED_IDENTIFIERS),
+        nextcloud_folder=nextcloud_folder,
+        nextcloud_files=nextcloud_files,
+        nextcloud_error=nextcloud_error,
     )
 
 
@@ -460,6 +473,54 @@ def project_upload_chunk(project_id):
     except degas_client.DegasError as e:
         return jsonify({"error": str(e)}), 502
     return jsonify(result)
+
+
+@app.route("/projects/<int:project_id>/nextcloud-import", methods=["POST"])
+def project_nextcloud_import(project_id):
+    """Pulls one file from the client's Cloud KMG /incoming folder straight
+    into this project's Degas upload pipeline -- task #28, Ben's ask 8/3:
+    'remote team members can work on projects without moving files to
+    personal computers'. Downloads the file from Nextcloud, then re-chunks
+    and forwards it through Degas's existing chunked-upload route exactly
+    the way the browser's own JS uploader does (project_detail.html), just
+    sourced from Nextcloud bytes instead of a local <input type=file>."""
+    filename = request.form.get("filename", "").strip()
+    if not filename:
+        return render_template("error.html", message="No file selected to import."), 400
+
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return render_template("error.html", message="This project isn't linked to Degas."), 400
+
+    linked = _get_nextcloud_folder(proj["client_id"])
+    if not linked:
+        return render_template("error.html", message="This client isn't linked to a Cloud KMG folder yet -- set that up first."), 400
+
+    try:
+        nc_resp = nextcloud_client.download_file(f"{linked['folder_name']}/incoming/{filename}")
+        file_bytes = nc_resp.content
+    except nextcloud_client.NextcloudError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    if not file_bytes:
+        return render_template("error.html", message=f"'{filename}' downloaded empty from Cloud KMG -- nothing to import."), 400
+
+    file_uid = uuid.uuid4().hex
+    total_chunks = max(1, (len(file_bytes) + NEXTCLOUD_IMPORT_CHUNK_SIZE - 1) // NEXTCLOUD_IMPORT_CHUNK_SIZE)
+    try:
+        for i in range(total_chunks):
+            start = i * NEXTCLOUD_IMPORT_CHUNK_SIZE
+            chunk = file_bytes[start:start + NEXTCLOUD_IMPORT_CHUNK_SIZE]
+            degas_client.upload_chunk(
+                proj["degas_project_id"], file_uid, i, total_chunks, filename,
+                chunk, "application/octet-stream",
+            )
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=f"Import failed partway through: {e}"), 502
+
+    return redirect(url_for("project_detail", project_id=project_id))
 
 
 @app.route("/projects/<int:project_id>/clips/<int:clip_id>/transcribe", methods=["POST"])
@@ -689,6 +750,51 @@ def clip_download(project_id, clip_id):
         content_type=degas_resp.headers.get("Content-Type", "video/mp4"),
         headers={"Content-Disposition": content_disposition},
     )
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/archive-to-cloud", methods=["POST"])
+def clip_archive_to_cloud(project_id, clip_id):
+    """Pushes a clip's finished EXPORTED (captioned) video out to the
+    client's Cloud KMG /captioned folder -- task #28, the other half of
+    Ben's ask (8/3): remote team members can grab finished clips without
+    Studio being the only place they exist. Manual, one click per clip
+    (same pattern as the existing Download button) rather than automatic
+    right after export -- Studio has no reliable server-side signal for
+    'export just finished', only the browser's own polling JS discovers
+    that (see pollStatuses() in project_detail.html)."""
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return render_template("error.html", message="This project isn't linked to Degas."), 400
+
+    linked = _get_nextcloud_folder(proj["client_id"])
+    if not linked:
+        return render_template("error.html", message="This client isn't linked to a Cloud KMG folder yet -- set that up first."), 400
+
+    try:
+        degas_resp = degas_client.download_clip(proj["degas_project_id"], clip_id)
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    content_disposition = degas_resp.headers.get("Content-Disposition")
+    if not content_disposition:
+        return render_template("error.html", message="This clip isn't exported yet -- export it first, then archive."), 400
+
+    filename = None
+    if "filename=" in content_disposition:
+        filename = content_disposition.split("filename=", 1)[1].strip('"; ')
+    filename = filename or f"clip_{clip_id}.mp4"
+
+    try:
+        nextcloud_client.ensure_folder(f"{linked['folder_name']}/captioned")
+        nextcloud_client.upload_file(
+            f"{linked['folder_name']}/captioned/{filename}", degas_resp.content, "video/mp4"
+        )
+    except nextcloud_client.NextcloudError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    return redirect(url_for("project_detail", project_id=project_id))
 
 
 @app.route("/projects/<int:project_id>/clips/<int:clip_id>/video")
@@ -946,6 +1052,29 @@ def _get_schedulable_channels(linked, allowed_identifiers=None):
         return channels, None
     except postiz_client.PostizError as e:
         return [], str(e)
+
+
+def _get_nextcloud_folder(client_id):
+    """The client's linked Cloud KMG folder row, or None if not set up yet."""
+    db = get_db()
+    linked = db.execute("SELECT * FROM client_nextcloud_folders WHERE client_id = ?", (client_id,)).fetchone()
+    db.close()
+    return linked
+
+
+def _get_nextcloud_incoming_files(client_id):
+    """Returns (folder_name, files, error) for a client's Cloud KMG
+    /incoming subfolder (task #28). files is [] rather than an error both
+    when nothing's linked yet and when the folder's simply empty -- callers
+    tell those apart via folder_name being None."""
+    linked = _get_nextcloud_folder(client_id)
+    if not linked:
+        return None, [], None
+    try:
+        files = nextcloud_client.list_folder(f"{linked['folder_name']}/incoming")
+        return linked["folder_name"], files, None
+    except nextcloud_client.NextcloudError as e:
+        return linked["folder_name"], [], str(e)
 
 
 @app.route("/clients/<int:client_id>/quick-posts")
@@ -1406,6 +1535,70 @@ def postiz_setup_link(client_id):
     db.commit()
     db.close()
     return redirect(url_for("postiz_setup_view", client_id=client_id))
+
+
+@app.route("/clients/<int:client_id>/nextcloud-setup")
+def nextcloud_setup_view(client_id):
+    """One-time linkage: which top-level Cloud KMG folder belongs to this
+    client (task #28, Ben's ask 8/3). Saving here also creates
+    /<folder>/incoming and /<folder>/captioned if they don't exist yet, so
+    there's nothing else to set up before the project page's Cloud KMG card
+    and Archive-to-Cloud buttons work."""
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    active_client = next((c for c in clients if c["id"] == client_id), None)
+    if not active_client:
+        return redirect(url_for("dashboard"))
+
+    linked = _get_nextcloud_folder(client_id)
+
+    incoming_files = []
+    captioned_files = []
+    nextcloud_error = None
+    if linked:
+        try:
+            incoming_files = nextcloud_client.list_folder(f"{linked['folder_name']}/incoming")
+            captioned_files = nextcloud_client.list_folder(f"{linked['folder_name']}/captioned")
+        except nextcloud_client.NextcloudError as e:
+            nextcloud_error = str(e)
+
+    return render_template(
+        "nextcloud_setup.html",
+        clients=clients,
+        active_client=active_client,
+        linked=linked,
+        incoming_files=incoming_files,
+        captioned_files=captioned_files,
+        nextcloud_error=nextcloud_error,
+    )
+
+
+@app.route("/clients/<int:client_id>/nextcloud-setup/link", methods=["POST"])
+def nextcloud_setup_link(client_id):
+    folder_name = request.form.get("folder_name", "").strip().strip("/")
+    if not folder_name:
+        return redirect(url_for("nextcloud_setup_view", client_id=client_id))
+
+    try:
+        nextcloud_client.ensure_folder(f"{folder_name}/incoming")
+        nextcloud_client.ensure_folder(f"{folder_name}/captioned")
+    except nextcloud_client.NextcloudError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    db = get_db()
+    db.execute(
+        """INSERT INTO client_nextcloud_folders (client_id, folder_name, updated_at)
+           VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(client_id) DO UPDATE SET
+             folder_name = excluded.folder_name,
+             updated_at = CURRENT_TIMESTAMP""",
+        (client_id, folder_name)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("nextcloud_setup_view", client_id=client_id))
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

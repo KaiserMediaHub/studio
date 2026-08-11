@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Fix caption text color, add loading indicator, link posts to their clip's exported video for YouTube/IG scheduling"
+git commit -m "Connect Studio to Cloud KMG (Nextcloud): pull raw footage into projects, archive exports back out"
 git push
 
 echo.

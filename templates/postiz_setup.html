@@ -86,11 +86,12 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}open{% endif %}>
-        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}active{% endif %}">Settings</summary>
+      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}open{% endif %}>
+        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
           <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
           <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem {% if request.endpoint == 'nextcloud_setup_view' %}active{% endif %}" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
         </div>
       </details>
     </div>

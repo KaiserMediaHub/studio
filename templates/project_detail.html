@@ -133,11 +133,12 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
-      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}open{% endif %}>
-        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view') %}active{% endif %}">Settings</summary>
+      <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}open{% endif %}>
+        <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
           <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
           <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem {% if request.endpoint == 'nextcloud_setup_view' %}active{% endif %}" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
         </div>
       </details>
     </div>
@@ -177,6 +178,31 @@
     {% if not project.degas_project_id %}
       <div class="hint-banner">This project isn't linked to a Degas project, so there's nothing to upload/transcribe/export here.</div>
     {% else %}
+
+    {% if nextcloud_folder %}
+    <div class="card">
+      <div class="card-title">Cloud KMG — /{{ nextcloud_folder }}/incoming</div>
+      {% if nextcloud_error %}
+        <div class="error-banner">{{ nextcloud_error }}</div>
+      {% elif nextcloud_files %}
+        {% for f in nextcloud_files %}
+        <div class="clip-row">
+          <div>
+            <div class="clip-name">{{ f.name }}</div>
+          </div>
+          <div class="clip-actions">
+            <form method="POST" action="{{ url_for('project_nextcloud_import', project_id=project.id) }}" class="js-loading-form">
+              <input type="hidden" name="filename" value="{{ f.name }}">
+              <button class="btn btn-primary btn-small" type="submit" data-loading-text="Importing…">Import</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">Nothing in /incoming yet -- have the team drop raw footage there in Cloud KMG.</div>
+      {% endif %}
+    </div>
+    {% endif %}
 
     <div class="card">
       <div class="card-title">Upload video</div>
@@ -227,6 +253,11 @@
             {% endif %}
             {% if c.status == 'exported' %}
               <a class="btn btn-ghost btn-small" style="text-decoration:none;display:inline-block;" href="{{ url_for('clip_download', project_id=project.id, clip_id=c.id) }}">Download</a>
+              {% if nextcloud_folder %}
+              <form method="POST" action="{{ url_for('clip_archive_to_cloud', project_id=project.id, clip_id=c.id) }}" class="js-loading-form">
+                <button class="btn btn-ghost btn-small" type="submit" data-loading-text="Archiving…">Archive to Cloud KMG</button>
+              </form>
+              {% endif %}
             {% endif %}
           </div>
         </div>
