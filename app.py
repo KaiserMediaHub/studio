@@ -446,6 +446,40 @@ def project_detail(project_id):
     )
 
 
+def _archive_direct_upload_to_cloud(proj, filename):
+    """Best-effort copy of a freshly-completed direct upload (Studio's own
+    Upload button, not the Cloud KMG pull-in path) out to /imported, so
+    files land there regardless of which upload path someone used (task
+    #31, Ben's ask 8/11: 'Yes, I want that'). Matches the clip by filename
+    since Degas's chunk-upload response doesn't return the new clip's id --
+    picks the last match if there happen to be several same-named clips,
+    since that's the one most likely to be the one that just finished.
+
+    Non-fatal by design: the upload into Degas already succeeded by the
+    time this runs, which is what actually matters for the pipeline to
+    keep working -- a failed Nextcloud copy shouldn't turn a successful
+    upload into an error for the browser's uploader."""
+    linked = _get_nextcloud_folder(proj["client_id"])
+    if not linked:
+        return
+    try:
+        degas_proj = degas_client.get_project(proj["degas_project_id"])
+        matches = [
+            c for c in degas_proj.get("clips", [])
+            if (c.get("original_filename") or c.get("filename")) == filename
+        ]
+        if not matches:
+            return
+        clip = matches[-1]
+        video_resp = degas_client.stream_clip_video(proj["degas_project_id"], clip["id"])
+        nextcloud_client.ensure_folder(f"{linked['folder_name']}/imported")
+        nextcloud_client.upload_file(
+            f"{linked['folder_name']}/imported/{filename}", video_resp.content, "video/mp4"
+        )
+    except (degas_client.DegasError, nextcloud_client.NextcloudError):
+        pass
+
+
 @app.route("/projects/<int:project_id>/upload-chunk", methods=["POST"])
 def project_upload_chunk(project_id):
     """Receives one chunk from the browser's JS uploader and forwards it to
@@ -472,6 +506,10 @@ def project_upload_chunk(project_id):
         )
     except degas_client.DegasError as e:
         return jsonify({"error": str(e)}), 502
+
+    if result.get("status") == "complete":
+        _archive_direct_upload_to_cloud(proj, filename)
+
     return jsonify(result)
 
 
@@ -519,6 +557,20 @@ def project_nextcloud_import(project_id):
             )
     except degas_client.DegasError as e:
         return render_template("error.html", message=f"Import failed partway through: {e}"), 502
+
+    # Move the source file out of /incoming so it doesn't keep showing up as
+    # 'unclaimed' footage once it's actually been pulled into a project
+    # (task #30, Ben's ask 8/11). Best-effort: the import into Degas already
+    # succeeded above, which is the part that actually matters -- a failed
+    # tidy-up here shouldn't turn a successful import into an error page.
+    try:
+        nextcloud_client.ensure_folder(f"{linked['folder_name']}/imported")
+        nextcloud_client.move_file(
+            f"{linked['folder_name']}/incoming/{filename}",
+            f"{linked['folder_name']}/imported/{filename}",
+        )
+    except nextcloud_client.NextcloudError:
+        pass
 
     return redirect(url_for("project_detail", project_id=project_id))
 
@@ -1555,11 +1607,13 @@ def nextcloud_setup_view(client_id):
     linked = _get_nextcloud_folder(client_id)
 
     incoming_files = []
+    imported_files = []
     captioned_files = []
     nextcloud_error = None
     if linked:
         try:
             incoming_files = nextcloud_client.list_folder(f"{linked['folder_name']}/incoming")
+            imported_files = nextcloud_client.list_folder(f"{linked['folder_name']}/imported")
             captioned_files = nextcloud_client.list_folder(f"{linked['folder_name']}/captioned")
         except nextcloud_client.NextcloudError as e:
             nextcloud_error = str(e)
@@ -1570,6 +1624,7 @@ def nextcloud_setup_view(client_id):
         active_client=active_client,
         linked=linked,
         incoming_files=incoming_files,
+        imported_files=imported_files,
         captioned_files=captioned_files,
         nextcloud_error=nextcloud_error,
     )
@@ -1584,6 +1639,7 @@ def nextcloud_setup_link(client_id):
     try:
         nextcloud_client.ensure_folder(f"{folder_name}/incoming")
         nextcloud_client.ensure_folder(f"{folder_name}/captioned")
+        nextcloud_client.ensure_folder(f"{folder_name}/imported")
     except nextcloud_client.NextcloudError as e:
         return render_template("error.html", message=str(e)), 502
 

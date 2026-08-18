@@ -112,7 +112,7 @@
         </div>
         <button class="btn" type="submit">Save</button>
       </form>
-      <div class="hint">This creates (or reuses) /{{ '<name>' if not linked else linked.folder_name }}/incoming and /{{ '<name>' if not linked else linked.folder_name }}/captioned in Cloud KMG. Team members drop raw footage in <code>incoming</code>; finished captioned clips get pushed to <code>captioned</code> from the project page.</div>
+      <div class="hint">This creates (or reuses) /{{ '<name>' if not linked else linked.folder_name }}/incoming, /imported, and /captioned in Cloud KMG. Team members drop raw footage in <code>incoming</code>; Studio moves it to <code>imported</code> once it's pulled into a project; finished captioned clips get pushed to <code>captioned</code> from the project page.</div>
     </div>
 
     {% if linked %}
@@ -127,6 +127,20 @@
         {% endfor %}
       {% else %}
         <div class="empty">Nothing here yet -- have the team drop raw footage into this folder in Cloud KMG.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="label" style="padding:0;margin-bottom:12px;">/{{ linked.folder_name }}/imported</div>
+      {% if imported_files %}
+        {% for f in imported_files %}
+          <div class="file-row">
+            <div>{{ f.name }}</div>
+            <div class="file-size">{{ (f.size / 1048576) | round(1) }} MB</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">Nothing here yet -- files land here automatically once they're imported into a project from /incoming.</div>
       {% endif %}
     </div>
 

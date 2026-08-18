@@ -142,3 +142,26 @@ def upload_file(path, data, content_type="application/octet-stream"):
     must already exist -- callers should ensure_folder() first if unsure
     (WebDAV PUT does not create missing parent directories)."""
     return _request("PUT", path, data=data, headers={"Content-Type": content_type})
+
+
+def move_file(src_path, dest_path):
+    """WebDAV MOVE -- relocates a file server-side in one request (no
+    download+reupload needed). Used to shuffle a raw file out of /incoming
+    into /imported once Studio has successfully pulled it into a Degas
+    project, so /incoming only ever shows footage nobody's acted on yet
+    (Ben's ask 8/11: 'can the files be organized after the incoming
+    part?'). Overwrite is allowed rather than failing outright if a
+    same-named file is already sitting in the destination -- tidiness here
+    is best-effort, not something worth blocking an otherwise-successful
+    import over."""
+    destination = _dav_url(dest_path)
+    try:
+        resp = requests.request(
+            "MOVE", _dav_url(src_path), auth=_auth(), timeout=30,
+            headers={"Destination": destination, "Overwrite": "T"},
+        )
+    except requests.exceptions.RequestException as e:
+        raise NextcloudError(f"Couldn't reach Cloud KMG moving '{src_path}': {e}") from e
+    if resp.status_code >= 400:
+        raise NextcloudError(f"Cloud KMG error ({resp.status_code}) moving '{src_path}' to '{dest_path}': {resp.text[:200]}")
+    return resp

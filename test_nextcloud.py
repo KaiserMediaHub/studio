@@ -153,7 +153,7 @@ def test_ensure_folder_raises_on_real_error():
         check("ensure_folder: real error (500) raises", True)
 
 
-# ── nextcloud_client: upload_file / download_file ────────────────────────────
+# ── nextcloud_client: upload_file / download_file / move_file ───────────────
 
 def test_upload_file_puts_bytes():
     calls = []
@@ -174,6 +174,29 @@ def test_download_file_streams():
     check("download_file: returns response with content", resp.content == b"rawvideo")
 
 
+def test_move_file_sends_destination_header():
+    calls = []
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs.get("headers")))
+        return FakeResp(201)
+    nextcloud_client.requests.request = fake_request
+
+    nextcloud_client.move_file("Epiphany/incoming/raw1.mp4", "Epiphany/imported/raw1.mp4")
+    check("move_file: MOVE method used", calls[0][0] == "MOVE")
+    check("move_file: source URL targeted", calls[0][1].endswith("/Epiphany/incoming/raw1.mp4"), calls[0][1])
+    check("move_file: Destination header set to new path", calls[0][2]["Destination"].endswith("/Epiphany/imported/raw1.mp4"), calls[0][2])
+    check("move_file: Overwrite allowed", calls[0][2]["Overwrite"] == "T")
+
+
+def test_move_file_raises_on_error():
+    nextcloud_client.requests.request = lambda method, url, **kwargs: FakeResp(500, text="boom")
+    try:
+        nextcloud_client.move_file("Epiphany/incoming/x.mp4", "Epiphany/imported/x.mp4")
+        check("move_file: raises on real error", False, "did not raise")
+    except nextcloud_client.NextcloudError:
+        check("move_file: raises on real error", True)
+
+
 # ── Routes: nextcloud_setup_view / link ──────────────────────────────────────
 
 def test_nextcloud_setup_link_saves_and_creates_folders():
@@ -185,6 +208,7 @@ def test_nextcloud_setup_link_saves_and_creates_folders():
     check("nextcloud_setup_link: redirects", resp.status_code == 302, resp.status_code)
     check("nextcloud_setup_link: ensures /incoming", "Epiphany/incoming" in ensure_calls, ensure_calls)
     check("nextcloud_setup_link: ensures /captioned", "Epiphany/captioned" in ensure_calls, ensure_calls)
+    check("nextcloud_setup_link: ensures /imported", "Epiphany/imported" in ensure_calls, ensure_calls)
 
     db = database.get_db()
     row = db.execute("SELECT * FROM client_nextcloud_folders WHERE client_id = ?", (CLIENT_ID,)).fetchone()
@@ -192,12 +216,20 @@ def test_nextcloud_setup_link_saves_and_creates_folders():
     check("nextcloud_setup_link: saved to DB", row is not None and row["folder_name"] == "Epiphany", dict(row) if row else None)
 
 
-def test_nextcloud_setup_view_lists_both_folders():
-    nextcloud_client.list_folder = lambda path: [{"name": "a.mp4", "size": 500, "last_modified": None}] if "incoming" in path else [{"name": "b.mp4", "size": 900, "last_modified": None}]
+def test_nextcloud_setup_view_lists_all_three_folders():
+    def fake_list(path):
+        if "incoming" in path:
+            return [{"name": "a.mp4", "size": 500, "last_modified": None}]
+        if "imported" in path:
+            return [{"name": "c.mp4", "size": 700, "last_modified": None}]
+        return [{"name": "b.mp4", "size": 900, "last_modified": None}]
+    nextcloud_client.list_folder = fake_list
+
     resp = client.get(f"/clients/{CLIENT_ID}/nextcloud-setup")
     body = resp.get_data(as_text=True)
     check("nextcloud_setup_view: 200 OK", resp.status_code == 200)
     check("nextcloud_setup_view: shows incoming file", "a.mp4" in body)
+    check("nextcloud_setup_view: shows imported file", "c.mp4" in body)
     check("nextcloud_setup_view: shows captioned file", "b.mp4" in body)
 
 
@@ -228,7 +260,7 @@ def test_project_detail_shows_cloud_kmg_card_when_linked():
 
 # ── project_nextcloud_import ──────────────────────────────────────────────────
 
-def test_nextcloud_import_chunks_and_uploads_to_degas():
+def test_nextcloud_import_chunks_uploads_and_moves_file():
     pid = make_project("Import Test")
 
     class FakeDownload:
@@ -241,12 +273,34 @@ def test_nextcloud_import_chunks_and_uploads_to_degas():
         return {"status": "chunk_received"} if chunk_index < total_chunks - 1 else {"status": "complete", "filename": filename}
     degas_client.upload_chunk = fake_upload_chunk
 
+    move_calls = []
+    nextcloud_client.ensure_folder = lambda path: None
+    nextcloud_client.move_file = lambda src, dest: move_calls.append((src, dest))
+
     resp = client.post(f"/projects/{pid}/nextcloud-import", data={"filename": "raw1.mp4"})
     check("nextcloud_import: redirects on success", resp.status_code == 302, resp.status_code)
     check("nextcloud_import: exactly 2 chunks sent for 10MB file", len(chunk_calls) == 2, chunk_calls)
     check("nextcloud_import: first chunk is full 8MB", chunk_calls[0][4] == 8 * 1024 * 1024, chunk_calls[0])
     check("nextcloud_import: second chunk is the 2MB remainder", chunk_calls[1][4] == 2 * 1024 * 1024, chunk_calls[1])
     check("nextcloud_import: correct degas_project_id forwarded", chunk_calls[0][0] == DEGAS_PROJECT_ID)
+    check("nextcloud_import: moves file from incoming to imported", move_calls == [("Epiphany/incoming/raw1.mp4", "Epiphany/imported/raw1.mp4")], move_calls)
+
+
+def test_nextcloud_import_succeeds_even_if_move_fails():
+    pid = make_project("Import Move Fails Test")
+
+    class FakeDownload:
+        content = b"y" * 1000
+    nextcloud_client.download_file = lambda path: FakeDownload()
+    degas_client.upload_chunk = lambda *a, **kw: {"status": "complete", "filename": "raw2.mp4"}
+
+    def failing_move(src, dest):
+        raise nextcloud_client.NextcloudError("simulated move failure")
+    nextcloud_client.ensure_folder = lambda path: None
+    nextcloud_client.move_file = failing_move
+
+    resp = client.post(f"/projects/{pid}/nextcloud-import", data={"filename": "raw2.mp4"})
+    check("nextcloud_import: still redirects (success) even if the Nextcloud tidy-up move fails", resp.status_code == 302, resp.status_code)
 
 
 def test_nextcloud_import_blocked_without_linked_folder():
@@ -316,14 +370,117 @@ test_ensure_folder_tolerates_already_exists()
 test_ensure_folder_raises_on_real_error()
 test_upload_file_puts_bytes()
 test_download_file_streams()
+test_move_file_sends_destination_header()
+test_move_file_raises_on_error()
 test_nextcloud_setup_link_saves_and_creates_folders()
-test_nextcloud_setup_view_lists_both_folders()
+test_nextcloud_setup_view_lists_all_three_folders()
 test_project_detail_shows_cloud_kmg_card_when_linked()
-test_nextcloud_import_chunks_and_uploads_to_degas()
+test_nextcloud_import_chunks_uploads_and_moves_file()
+test_nextcloud_import_succeeds_even_if_move_fails()
 test_nextcloud_import_blocked_without_linked_folder()
 test_nextcloud_import_empty_file_blocked()
+def test_direct_upload_archives_to_cloud_on_completion():
+    pid = make_project("Direct Upload Test")
+
+    def fake_get_project(p):
+        return {"clips": [{"id": 71, "status": "uploaded", "filename": "clip.mp4", "original_filename": "clip.mp4"}]}
+    degas_client.get_project = fake_get_project
+
+    def fake_upload_chunk(degas_project_id, file_uid, chunk_index, total_chunks, filename, chunk_bytes, content_type):
+        return {"status": "complete", "filename": filename}
+    degas_client.upload_chunk = fake_upload_chunk
+
+    class FakeVideoResp:
+        content = b"raw-uploaded-bytes"
+    degas_client.stream_clip_video = lambda p, c: FakeVideoResp()
+
+    ensure_calls = []
+    upload_calls = []
+    nextcloud_client.ensure_folder = lambda path: ensure_calls.append(path)
+    nextcloud_client.upload_file = lambda path, data, content_type: upload_calls.append((path, data, content_type))
+
+    resp = client.post(f"/projects/{pid}/upload-chunk", data={
+        "file_uid": "abc", "chunk_index": "0", "total_chunks": "1", "filename": "clip.mp4",
+        "data": (io.BytesIO(b"chunk-bytes"), "clip.mp4"),
+    }, content_type="multipart/form-data")
+    check("direct upload: 200 OK", resp.status_code == 200, resp.status_code)
+    check("direct upload: ensures /imported exists", "Epiphany/imported" in ensure_calls, ensure_calls)
+    check("direct upload: uploads to /imported with matching filename", upload_calls and upload_calls[0][0] == "Epiphany/imported/clip.mp4", upload_calls)
+    check("direct upload: uploads the raw video bytes fetched back from Degas", upload_calls and upload_calls[0][1] == b"raw-uploaded-bytes", upload_calls)
+
+
+def test_direct_upload_skips_cloud_copy_on_intermediate_chunk():
+    pid = make_project("Intermediate Chunk Test")
+
+    def fake_upload_chunk(degas_project_id, file_uid, chunk_index, total_chunks, filename, chunk_bytes, content_type):
+        return {"status": "chunk_received", "chunks": 1, "total": 2}
+    degas_client.upload_chunk = fake_upload_chunk
+
+    def should_not_be_called(p):
+        raise AssertionError("get_project should not be called for a non-final chunk")
+    degas_client.get_project = should_not_be_called
+
+    resp = client.post(f"/projects/{pid}/upload-chunk", data={
+        "file_uid": "abc", "chunk_index": "0", "total_chunks": "2", "filename": "clip.mp4",
+        "data": (io.BytesIO(b"chunk-bytes"), "clip.mp4"),
+    }, content_type="multipart/form-data")
+    check("direct upload: intermediate chunk does not trigger Cloud KMG copy", resp.status_code == 200, resp.status_code)
+
+
+def test_direct_upload_succeeds_even_if_cloud_copy_fails():
+    pid = make_project("Direct Upload Cloud Fail Test")
+
+    degas_client.get_project = lambda p: {"clips": [{"id": 72, "status": "uploaded", "filename": "clip2.mp4", "original_filename": "clip2.mp4"}]}
+    degas_client.upload_chunk = lambda *a, **kw: {"status": "complete", "filename": "clip2.mp4"}
+
+    def failing_stream(p, c):
+        raise degas_client.DegasError("simulated failure")
+    degas_client.stream_clip_video = failing_stream
+
+    resp = client.post(f"/projects/{pid}/upload-chunk", data={
+        "file_uid": "abc", "chunk_index": "0", "total_chunks": "1", "filename": "clip2.mp4",
+        "data": (io.BytesIO(b"chunk-bytes"), "clip2.mp4"),
+    }, content_type="multipart/form-data")
+    check("direct upload: still 200 OK even if the Cloud KMG copy fails", resp.status_code == 200, resp.status_code)
+
+
+def test_direct_upload_no_cloud_copy_when_client_not_linked():
+    pid = make_project("Direct Upload No Link Test")
+    db = database.get_db()
+    db.execute("DELETE FROM client_nextcloud_folders WHERE client_id = ?", (CLIENT_ID,))
+    db.commit()
+    db.close()
+
+    degas_client.upload_chunk = lambda *a, **kw: {"status": "complete", "filename": "clip3.mp4"}
+
+    def should_not_be_called(p):
+        raise AssertionError("get_project should not be called when client has no linked Cloud KMG folder")
+    degas_client.get_project = should_not_be_called
+
+    resp = client.post(f"/projects/{pid}/upload-chunk", data={
+        "file_uid": "abc", "chunk_index": "0", "total_chunks": "1", "filename": "clip3.mp4",
+        "data": (io.BytesIO(b"chunk-bytes"), "clip3.mp4"),
+    }, content_type="multipart/form-data")
+    check("direct upload: 200 OK, skips Cloud KMG entirely when client unlinked", resp.status_code == 200, resp.status_code)
+
+    # restore link for any tests that might run after this one
+    db = database.get_db()
+    db.execute(
+        """INSERT INTO client_nextcloud_folders (client_id, folder_name, updated_at)
+           VALUES (?, 'Epiphany', CURRENT_TIMESTAMP)
+           ON CONFLICT(client_id) DO UPDATE SET folder_name = excluded.folder_name""",
+        (CLIENT_ID,)
+    )
+    db.commit()
+    db.close()
+
+
 test_archive_to_cloud_uploads_exported_clip()
 test_archive_to_cloud_blocked_when_not_exported()
+test_direct_upload_archives_to_cloud_on_completion()
+test_direct_upload_skips_cloud_copy_on_intermediate_chunk()
+test_direct_upload_succeeds_even_if_cloud_copy_fails()
+test_direct_upload_no_cloud_copy_when_client_not_linked()
 
 print(f"\n{results['pass']} passed, {results['fail']} failed")
 sys.exit(1 if results["fail"] else 0)

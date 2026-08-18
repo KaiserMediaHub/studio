@@ -4,7 +4,7 @@ echo Working in: %cd%
 echo.
 
 git add .
-git commit -m "Connect Studio to Cloud KMG (Nextcloud): pull raw footage into projects, archive exports back out"
+git commit -m "Also copy direct video uploads to Cloud KMG /imported for consistency"
 git push
 
 echo.
