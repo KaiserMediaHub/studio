@@ -47,16 +47,24 @@ def _ensure_session():
     _authenticated = True
 
 
-def _request(method, path, **kwargs):
+def _request(method, path, timeout=15, **kwargs):
+    """Default timeout (15s) is for plain DB-backed calls (get/list/update).
+    Any call that makes Hemingway do LLM generation must pass a longer
+    timeout explicitly -- see rewrite_post() below. Found in production
+    2026-08-24: rewrite_post() was using this 15s default even though
+    Hemingway's double-pass style/voice QA (added 2026-08-18) means a single
+    rewrite now makes two sequential Claude calls, which routinely takes
+    longer than 15s and surfaced as 'Couldn't reach Hemingway... Read timed
+    out' even though Hemingway itself was working fine."""
     _ensure_session()
     try:
-        resp = _session.request(method, f"{HEMINGWAY_BASE_URL}{path}", timeout=15, **kwargs)
+        resp = _session.request(method, f"{HEMINGWAY_BASE_URL}{path}", timeout=timeout, **kwargs)
         if resp.status_code == 401:
             # Session expired or was never valid -- retry once after re-login.
             global _authenticated
             _authenticated = False
             _ensure_session()
-            resp = _session.request(method, f"{HEMINGWAY_BASE_URL}{path}", timeout=15, **kwargs)
+            resp = _session.request(method, f"{HEMINGWAY_BASE_URL}{path}", timeout=timeout, **kwargs)
     except requests.exceptions.RequestException as e:
         raise HemingwayError(f"Couldn't reach Hemingway at {HEMINGWAY_BASE_URL}{path}: {e}") from e
     if resp.status_code >= 400:
@@ -210,9 +218,14 @@ def rewrite_post(hemingway_post_id, instruction=""):
     """Regenerate a quick post's caption. Reuses Hemingway's existing
     /api/posts/<id>/rewrite -- it already re-reads that post's stored batch
     (style, length, client rules, style docs) and just needs an optional
-    extra instruction, same as a normal post rewrite."""
+    extra instruction, same as a normal post rewrite.
+
+    60s timeout, not the 15s default -- this triggers two sequential Claude
+    calls server-side (draft + style/voice review pass), which routinely
+    takes longer than 15s. See _request()'s docstring."""
     resp = _request(
         "POST", f"/api/posts/{hemingway_post_id}/rewrite",
         json={"instruction": instruction},
+        timeout=60,
     )
     return resp.json()
