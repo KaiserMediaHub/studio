@@ -1554,7 +1554,12 @@ def calendar_create_post(client_id):
     send_at = request.form.get("send_at", "").strip()
     month_key = request.form.get("month_key", "")
     youtube_title = request.form.get("youtube_title", "").strip()
-    media_file = request.files.get("media")
+    # getlist, not get -- the file input now allows multiple selections
+    # (Ben's ask, 2026-08-24: multi-image carousel posts). Postiz's `image`
+    # field on a post was always a list; Studio just never sent more than one
+    # entry before. Order matters -- it's carousel order and cover order --
+    # so files are uploaded and appended in the order the browser sent them.
+    media_files = [f for f in request.files.getlist("media") if f and f.filename]
 
     if not caption or not channel_ids or not send_at:
         return render_template("error.html", message="A caption, at least one channel, and a send time are all required."), 400
@@ -1574,10 +1579,16 @@ def calendar_create_post(client_id):
             return render_template("error.html", message="None of the selected channels could be matched to a connected integration."), 400
 
         needs_media = any(i["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS for i in selected)
+        needs_youtube = any(i["identifier"] == "youtube" for i in selected)
+        if needs_youtube and len(media_files) > 1:
+            db.close()
+            return render_template("error.html", message="YouTube accepts exactly one video file, not multiple -- remove the extra files or unselect YouTube."), 400
+
         image = []
-        if media_file and media_file.filename:
-            uploaded = postiz_client.upload_file(media_file.stream, media_file.filename, media_file.content_type)
-            image = [{"id": uploaded["id"], "path": uploaded["path"]}]
+        if media_files:
+            for f in media_files:
+                uploaded = postiz_client.upload_file(f.stream, f.filename, f.content_type)
+                image.append({"id": uploaded["id"], "path": uploaded["path"]})
         elif needs_media:
             db.close()
             needed = [i["identifier"] for i in selected if i["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS]
@@ -1605,6 +1616,23 @@ def calendar_create_post(client_id):
     )
     db.commit()
     db.close()
+    return redirect(url_for("calendar_view", client_id=client_id, month=month_key))
+
+
+@app.route("/clients/<int:client_id>/calendar/posts/<post_id>/delete", methods=["POST"])
+def calendar_delete_post(client_id, post_id):
+    """Delete a scheduled/draft/error post from the calendar (Ben's ask,
+    2026-08-24: no way to edit or move posts once scheduled). Postiz's public
+    API has no endpoint to change a post's time or content -- Update Post
+    Settings only merges provider settings and explicitly leaves content and
+    publishDate untouched -- so delete is the only safe, real "undo" Studio
+    can offer. For editing or moving a post, use Postiz's own calendar
+    directly (drag-and-drop reschedule works there). See postiz_client.delete_post."""
+    month_key = request.form.get("month_key", "")
+    try:
+        postiz_client.delete_post(post_id)
+    except postiz_client.PostizError as e:
+        return render_template("error.html", message=str(e)), 502
     return redirect(url_for("calendar_view", client_id=client_id, month=month_key))
 
 

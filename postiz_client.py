@@ -207,6 +207,18 @@ def upload_file(file_obj, filename, content_type):
     ).json()
 
 
+def delete_post(post_id):
+    """Deletes a scheduled/draft post by ID (docs.postiz.com/public-api/posts/delete).
+    This is the only real "undo" the public API offers -- there is no endpoint
+    to change a post's time or content once created (Update Post Settings only
+    merges provider settings like a YouTube title, and explicitly leaves
+    content/publishDate untouched). Confirmed 2026-08-24 while looking into
+    edit/move support for Studio's calendar -- true editing isn't available
+    via the API, so Studio only offers delete; use Postiz's own calendar
+    directly for rescheduling or editing an existing post."""
+    return _request("DELETE", f"/posts/{post_id}").json()
+
+
 def list_posts(start_date_iso, end_date_iso, customer=None):
     """Returns posts within a date range: {"posts": [{id, content,
     publishDate, releaseURL, state, integration: {...}}, ...]}. state is one
