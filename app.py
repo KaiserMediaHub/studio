@@ -9,7 +9,7 @@ load_dotenv()
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify, Response
+    url_for, session, jsonify, Response, send_file, after_this_request
 )
 
 from database import init_db, get_db
@@ -255,6 +255,21 @@ PHASE_LABELS = {
     "drafting":       "Drafting",
     "post_review":    "Post Review",
 }
+
+
+@app.route("/clients/new", methods=["POST"])
+def new_client():
+    """Add a client without leaving Studio. Creates it in Hemingway (the
+    single source of truth -- see hemingway_client.get_clients()), so it
+    shows up there immediately with no separate sync step needed."""
+    name = request.form.get("name", "").strip()
+    if not name:
+        return redirect(url_for("dashboard"))
+    try:
+        client = hemingway_client.create_client(name)
+    except hemingway_client.HemingwayError as e:
+        return render_template("error.html", message=str(e)), 502
+    return redirect(url_for("dashboard", client_id=client["id"]))
 
 
 @app.route("/projects/new", methods=["POST"])
@@ -805,6 +820,80 @@ def clip_download(project_id, clip_id):
         content_type=degas_resp.headers.get("Content-Type", "video/mp4"),
         headers={"Content-Disposition": content_disposition},
     )
+
+
+@app.route("/projects/<int:project_id>/clips/download-all")
+def project_download_all(project_id):
+    """Zips every exported clip in the project and sends it as one download.
+    Built to a temp file on disk (not buffered in memory) since projects can
+    have several large video files -- this server doesn't have RAM to spare
+    for holding a multi-hundred-MB zip in memory (see transcription.py's
+    accuracy-history comment for exactly how tight that got once already).
+    Best-effort per clip: a single clip failing to download from Degas skips
+    that clip rather than failing the whole zip."""
+    import zipfile
+    import tempfile
+
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    db.close()
+    if not proj or not proj["degas_project_id"]:
+        return render_template("error.html", message="This project isn't linked to Degas."), 400
+
+    try:
+        degas_proj = degas_client.get_project(proj["degas_project_id"])
+    except degas_client.DegasError as e:
+        return render_template("error.html", message=str(e)), 502
+
+    exported_clips = [c for c in degas_proj.get("clips", []) if c.get("status") == "exported"]
+    if not exported_clips:
+        return render_template("error.html", message="No exported clips to download yet."), 400
+
+    fd, zip_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+
+    used_names = set()
+    any_written = False
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+        for c in exported_clips:
+            try:
+                resp = degas_client.download_clip(proj["degas_project_id"], c["id"])
+            except degas_client.DegasError:
+                continue  # best-effort -- skip a clip that fails rather than failing the whole zip
+            if not resp.headers.get("Content-Disposition"):
+                continue
+
+            base_name = c.get("original_filename") or c.get("filename") or f"clip-{c['id']}.mp4"
+            name = base_name
+            n = 1
+            while name in used_names:
+                stem, dot, ext = base_name.rpartition(".")
+                name = f"{stem} ({n}){dot}{ext}" if dot else f"{base_name} ({n})"
+                n += 1
+            used_names.add(name)
+
+            with zf.open(name, "w") as entry:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        entry.write(chunk)
+            any_written = True
+
+    if not any_written:
+        os.remove(zip_path)
+        return render_template("error.html", message="Couldn't reach Degas to download any clips -- try again."), 502
+
+    project_name = (proj["name"] or f"project-{project_id}").strip()
+    download_name = f"{project_name} - clips.zip"
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(zip_path, as_attachment=True, download_name=download_name, mimetype="application/zip")
 
 
 @app.route("/projects/<int:project_id>/clips/<int:clip_id>/archive-to-cloud", methods=["POST"])

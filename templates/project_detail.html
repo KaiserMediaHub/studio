@@ -227,6 +227,9 @@
             </select>
             <button class="btn btn-ghost btn-small" type="submit">Export All</button>
           </form>
+          {% if degas_clips|selectattr('status', 'equalto', 'exported')|list|length %}
+          <a class="btn btn-ghost btn-small" style="text-decoration:none;display:inline-block;" href="{{ url_for('project_download_all', project_id=project.id) }}">Download All</a>
+          {% endif %}
         </div>
       </div>
       {% if degas_clips %}

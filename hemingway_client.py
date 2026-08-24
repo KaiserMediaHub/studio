@@ -74,6 +74,15 @@ def get_client(client_id):
     return _request("GET", f"/api/clients/{client_id}").json()
 
 
+def create_client(name):
+    """Creates the client in Hemingway -- the single source of truth for
+    clients (see get_clients() above). Studio has no local clients table,
+    so there's nothing to keep in sync here; a client added from Studio's
+    UI shows up in Hemingway automatically because it's the same record,
+    not a copy of one."""
+    return _request("POST", "/api/clients", json={"name": name}).json()
+
+
 def update_style_rules(client_id, style_rules):
     return _request(
         "PUT", f"/api/clients/{client_id}/style-rules",

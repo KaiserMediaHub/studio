@@ -72,6 +72,15 @@
   .hint-banner{background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;
     padding:12px 16px;font-size:13px;margin-bottom:20px;}
   .hint-banner a{color:var(--accent);text-decoration:none;font-weight:700;}
+  .add-client-toggle{background:none;border:none;color:var(--text-dim);font-size:12px;
+    cursor:pointer;padding:6px 8px;margin-top:4px;text-align:left;}
+  .add-client-toggle:hover{color:var(--accent);}
+  .add-client-form{display:none;gap:6px;margin-top:6px;}
+  .add-client-form.open{display:flex;}
+  .add-client-form input{flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:6px;padding:8px 9px;color:var(--text);font-size:13px;}
+  .add-client-form button{background:var(--accent);color:#151515;border:none;border-radius:6px;
+    padding:8px 12px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -86,6 +95,11 @@
         {% endfor %}
       </select>
       {% endif %}
+      <button type="button" class="add-client-toggle" onclick="var f=document.getElementById('addClientForm'); f.classList.toggle('open'); if(f.classList.contains('open')) f.querySelector('input').focus();">+ Add client</button>
+      <form id="addClientForm" class="add-client-form" method="POST" action="{{ url_for('new_client') }}">
+        <input type="text" name="name" placeholder="Client name" required>
+        <button type="submit">Add</button>
+      </form>
     </div>
     {% if active_client %}
     <div>
