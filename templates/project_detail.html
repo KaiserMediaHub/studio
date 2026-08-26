@@ -101,6 +101,7 @@
   .toolbar-row{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
   .qp{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
   .qp-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .qp-source-title{font-size:12px;color:var(--text-dim);font-weight:600;}
   .qp-caption{white-space:pre-wrap;font-size:14px;line-height:1.5;background:var(--surface-2);
     border-radius:8px;padding:12px 14px;margin-bottom:10px;width:100%;border:1px solid var(--border);
     font-family:inherit;color:var(--text);}
@@ -312,6 +313,7 @@
         <div class="qp">
           <div class="qp-top">
             <span class="status-pill status-{{ p.status }}">{{ p.status }}</span>
+            {% if p.title %}<span class="qp-source-title">{{ p.title }}</span>{% endif %}
           </div>
           <form method="POST" action="{{ url_for('quick_posts_edit', post_id=p.id) }}">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">

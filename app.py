@@ -1025,9 +1025,9 @@ def project_write_posts(project_id):
             idx = p.get("index")
             clip_id = ordered_clip_ids[idx] if isinstance(idx, int) and 0 <= idx < len(ordered_clip_ids) else None
             db.execute(
-                """INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id)
-                   VALUES (?, ?, 'project', ?, 'draft', ?, ?)""",
-                (proj["client_id"], project_id, p["body"], p["id"], clip_id)
+                """INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id, title)
+                   VALUES (?, ?, 'project', ?, 'draft', ?, ?, ?)""",
+                (proj["client_id"], project_id, p["body"], p["id"], clip_id, p.get("title"))
             )
     db.commit()
     db.close()

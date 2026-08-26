@@ -75,6 +75,11 @@ def init_db():
                                                           -- posts only, NULL for quick posts) --
                                                           -- lets scheduling attach the matching
                                                           -- exported video for YouTube/Instagram
+            title             TEXT,                      -- Hemingway's per-section title (e.g.
+                                                          -- "01 - clip_filename"), so Ben can tell
+                                                          -- which video a post's copy came from
+                                                          -- without opening the clip (Ben's ask,
+                                                          -- 2026-08-26). NULL for quick posts.
             created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
         )
@@ -84,6 +89,7 @@ def init_db():
     for stmt in (
         "ALTER TABLE posts ADD COLUMN hemingway_post_id INTEGER",
         "ALTER TABLE posts ADD COLUMN clip_id INTEGER",
+        "ALTER TABLE posts ADD COLUMN title TEXT",
     ):
         try:
             conn.execute(stmt)
