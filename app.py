@@ -12,6 +12,9 @@ from flask import (
     url_for, session, jsonify, Response, send_file, after_this_request
 )
 
+from docx import Document
+from docx.shared import Pt
+
 from database import init_db, get_db
 import hemingway_client
 import degas_client
@@ -1032,6 +1035,52 @@ def project_write_posts(project_id):
     db.commit()
     db.close()
     return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/posts/export-doc")
+def project_posts_export_doc(project_id):
+    """One-click export of every post written for this project into a single
+    .docx -- title (which video it came from) then the post copy, in the
+    order they were generated. Ben's ask, 2026-08-26: a review/handoff doc
+    he can send along without opening Studio."""
+    db = get_db()
+    proj = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not proj:
+        db.close()
+        return redirect(url_for("dashboard"))
+
+    posts = db.execute(
+        "SELECT * FROM posts WHERE project_id = ? ORDER BY id ASC", (project_id,)
+    ).fetchall()
+    db.close()
+
+    if not posts:
+        return render_template("error.html", message="No posts written yet for this project."), 400
+
+    doc = Document()
+    doc.add_heading(proj["name"] or f"Project {project_id}", level=1)
+
+    for i, p in enumerate(posts):
+        heading = p["title"] or f"Post {i + 1}"
+        doc.add_heading(heading, level=2)
+        body_para = doc.add_paragraph(p["caption"] or "")
+        body_para.style.font.size = Pt(11)
+        if i < len(posts) - 1:
+            doc.add_paragraph("")  # spacer between posts
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    project_name = (proj["name"] or f"project-{project_id}").strip()
+    download_name = f"{project_name} - posts.docx"
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
 
 
 @app.route("/api/clients")

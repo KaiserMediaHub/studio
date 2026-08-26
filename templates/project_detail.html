@@ -272,7 +272,12 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Write Posts</div>
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Write Posts</span>
+        {% if project_posts %}
+          <a class="btn btn-ghost btn-small" href="{{ url_for('project_posts_export_doc', project_id=project.id) }}">Export all to Doc</a>
+        {% endif %}
+      </div>
       {% if not project_posts %}
         {% if can_write_posts %}
           <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form">
