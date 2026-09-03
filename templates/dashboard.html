@@ -117,6 +117,9 @@
           <a class="nav-subitem {% if request.endpoint == 'postiz_setup_view' %}active{% endif %}" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
           <a class="nav-subitem {% if request.endpoint == 'storage_cleanup_view' %}active{% endif %}" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
           <a class="nav-subitem {% if request.endpoint == 'nextcloud_setup_view' %}active{% endif %}" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
+          {% if session.is_admin %}
+          <a class="nav-subitem {% if request.endpoint == 'access_codes_view' %}active{% endif %}" href="{{ url_for('access_codes_view') }}">Access Codes</a>
+          {% endif %}
         </div>
       </details>
     </div>

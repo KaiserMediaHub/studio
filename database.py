@@ -159,5 +159,35 @@ def init_db():
         )
     """)
 
+    # Access codes (Ben's ask, 2026-09-03): replaces the single shared
+    # APP_PASSWORD with a table of labeled, independently-revocable
+    # passwords -- "not necessarily user-based," just distinct secrets Ben
+    # can hand out per person/role and pull individually. is_admin marks
+    # the one code that can see/manage this table; everyone else just logs
+    # in and uses Studio normally. revoked_at is checked on EVERY request
+    # (see require_login() in app.py), not just at login -- revoking a code
+    # kicks out any session using it immediately, not on next login attempt.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_codes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            label         TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin      INTEGER NOT NULL DEFAULT 0,
+            revoked_at    TIMESTAMP,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Seed exactly once, from the existing APP_PASSWORD env var, so this
+    # migration doesn't lock Ben out on first deploy -- his current password
+    # keeps working, now as the admin code labeled "Admin (original)".
+    existing = conn.execute("SELECT COUNT(*) AS n FROM access_codes").fetchone()["n"]
+    if existing == 0:
+        from werkzeug.security import generate_password_hash
+        seed_password = os.environ.get("APP_PASSWORD", "studio2026")
+        conn.execute(
+            "INSERT INTO access_codes (label, password_hash, is_admin) VALUES (?, ?, 1)",
+            ("Admin (original)", generate_password_hash(seed_password))
+        )
+
     conn.commit()
     conn.close()

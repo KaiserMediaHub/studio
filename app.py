@@ -14,6 +14,7 @@ from flask import (
 
 from docx import Document
 from docx.shared import Pt
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from database import init_db, get_db
 import hemingway_client
@@ -26,13 +27,15 @@ import nextcloud_client
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
-# Placeholder auth for this first skeleton: same shared-password session
-# pattern already proven in Degas and Hemingway. This is NOT the final
-# unified-auth story (STUDIO_SYSTEM_DESIGN.md Section 2/9, step 2) -- that
-# requires Degas and Hemingway to accept Studio's session instead of their
-# own login, which needs their real source confirmed first. This gets
-# Studio itself running and testable while that's worked out.
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "studio2026")
+# Access codes (Ben's ask, 2026-09-03): replaced the single shared
+# APP_PASSWORD with a table of labeled, independently-revocable passwords --
+# "not necessarily user-based," just distinct secrets Ben can hand out per
+# person/role and pull individually. See database.py's access_codes table
+# for the schema/seeding, and manage_access_codes() below for the admin UI.
+# This is NOT the full unified-auth story (STUDIO_SYSTEM_DESIGN.md Section
+# 2/9, step 2) -- that requires Degas and Hemingway to accept Studio's
+# session too, which is a separate, larger project. This is scoped to
+# Studio only per Ben's explicit choice.
 
 
 @app.before_request
@@ -42,6 +45,23 @@ def require_login():
         return
     if not session.get("logged_in"):
         return redirect(url_for("login"))
+    # Real-time revocation: checked on EVERY request, not just at login, so
+    # revoking a code kicks out any session already using it immediately.
+    code_id = session.get("access_code_id")
+    if code_id is not None:
+        db = get_db()
+        try:
+            row = db.execute("SELECT revoked_at FROM access_codes WHERE id = ?", (code_id,)).fetchone()
+        except Exception:
+            # access_codes table doesn't exist yet -- can only happen on the
+            # very first request of a fresh deploy, before ensure_initialized()
+            # has run init_db(). Let the request through rather than crash;
+            # ensure_initialized() (registered below) fixes this immediately after.
+            row = True
+        db.close()
+        if not row or (row is not True and row["revoked_at"] is not None):
+            session.clear()
+            return redirect(url_for("login"))
 
 
 @app.route("/health")
@@ -53,8 +73,16 @@ def health():
 def login():
     error = None
     if request.method == "POST":
-        if request.form.get("password") == APP_PASSWORD:
+        password = request.form.get("password", "")
+        db = get_db()
+        candidates = db.execute("SELECT * FROM access_codes WHERE revoked_at IS NULL").fetchall()
+        db.close()
+        matched = next((c for c in candidates if check_password_hash(c["password_hash"], password)), None)
+        if matched:
             session["logged_in"] = True
+            session["access_code_id"] = matched["id"]
+            session["access_code_label"] = matched["label"]
+            session["is_admin"] = bool(matched["is_admin"])
             return redirect(url_for("dashboard"))
         error = "Incorrect password — try again."
     return render_template("login.html", error=error)
@@ -64,6 +92,89 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+# ── Access codes (admin-only) ────────────────────────────────────────────────
+def _require_admin():
+    return session.get("is_admin") is True
+
+
+@app.route("/settings/access-codes")
+def access_codes_view():
+    if not _require_admin():
+        return render_template("error.html", message="This page is for the admin code only."), 403
+    db = get_db()
+    codes = db.execute("SELECT * FROM access_codes ORDER BY revoked_at IS NOT NULL, created_at").fetchall()
+    active_admin_count = db.execute(
+        "SELECT COUNT(*) AS n FROM access_codes WHERE is_admin = 1 AND revoked_at IS NULL"
+    ).fetchone()["n"]
+    db.close()
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError:
+        clients = []
+    return render_template(
+        "access_codes.html",
+        clients=clients,
+        active_client=clients[0] if clients else None,
+        codes=codes,
+        active_admin_count=active_admin_count,
+        current_code_id=session.get("access_code_id"),
+    )
+
+
+@app.route("/settings/access-codes/new", methods=["POST"])
+def access_codes_new():
+    if not _require_admin():
+        return render_template("error.html", message="This page is for the admin code only."), 403
+    label = (request.form.get("label") or "").strip()
+    password = request.form.get("password") or ""
+    is_admin = 1 if request.form.get("is_admin") == "on" else 0
+    if not label or not password:
+        return render_template("error.html", message="Both a label and a password are required."), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO access_codes (label, password_hash, is_admin) VALUES (?, ?, ?)",
+        (label, generate_password_hash(password), is_admin)
+    )
+    db.commit()
+    db.close()
+    return redirect(url_for("access_codes_view"))
+
+
+@app.route("/settings/access-codes/<int:code_id>/revoke", methods=["POST"])
+def access_codes_revoke(code_id):
+    if not _require_admin():
+        return render_template("error.html", message="This page is for the admin code only."), 403
+    db = get_db()
+    row = db.execute("SELECT * FROM access_codes WHERE id = ?", (code_id,)).fetchone()
+    if not row:
+        db.close()
+        return redirect(url_for("access_codes_view"))
+    if row["is_admin"]:
+        active_admin_count = db.execute(
+            "SELECT COUNT(*) AS n FROM access_codes WHERE is_admin = 1 AND revoked_at IS NULL"
+        ).fetchone()["n"]
+        if active_admin_count <= 1:
+            db.close()
+            return render_template("error.html", message="Can't revoke the last active admin code -- you'd lock yourself out. Add another admin code first."), 400
+    db.execute("UPDATE access_codes SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", (code_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("access_codes_view"))
+
+
+@app.route("/settings/access-codes/<int:code_id>/unrevoke", methods=["POST"])
+def access_codes_unrevoke(code_id):
+    """Undo an accidental revoke -- doesn't restore old sessions (those are
+    gone), but the same password works again immediately."""
+    if not _require_admin():
+        return render_template("error.html", message="This page is for the admin code only."), 403
+    db = get_db()
+    db.execute("UPDATE access_codes SET revoked_at = NULL WHERE id = ?", (code_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("access_codes_view"))
 
 
 # ── Clients ───────────────────────────────────────────────────────────────────
