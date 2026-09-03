@@ -122,6 +122,11 @@ def dashboard():
             if phase != p["phase"]:
                 db.execute("UPDATE projects SET phase = ? WHERE id = ?", (phase, p["id"]))
                 db.commit()
+            review_needed = db.execute(
+                "SELECT COUNT(*) AS n FROM clip_review_flags WHERE project_id = ? "
+                "AND (review_transcript = 1 OR review_video = 1)",
+                (p["id"],)
+            ).fetchone()["n"]
             projects.append({
                 "id": p["id"],
                 "name": p["name"],
@@ -131,6 +136,7 @@ def dashboard():
                 "clips_exported": sum(1 for c in clips if c["status"] == "exported"),
                 "created_at": p["created_at"],
                 "archived_at": p["archived_at"],
+                "review_needed": review_needed,
             })
         db.close()
 
@@ -654,6 +660,8 @@ def clip_review(project_id, clip_id):
     except degas_client.DegasError as e:
         return render_template("error.html", message=str(e)), 502
 
+    flags = _get_review_flags(project_id, [clip_id])[clip_id]
+
     return render_template(
         "clip_review.html",
         clients=clients,
@@ -661,7 +669,78 @@ def clip_review(project_id, clip_id):
         project=proj,
         clip_id=clip_id,
         segments=seg_data.get("current") or [],
+        review_flags=flags,
     )
+
+
+def _get_review_flags(project_id, clip_ids):
+    """Returns {clip_id: {'review_transcript': bool, 'review_video': bool}}
+    for the given clips. Clips with no row default to both False (normal)."""
+    if not clip_ids:
+        return {}
+    db = get_db()
+    placeholders = ",".join("?" * len(clip_ids))
+    rows = db.execute(
+        f"SELECT clip_id, review_transcript, review_video FROM clip_review_flags "
+        f"WHERE project_id = ? AND clip_id IN ({placeholders})",
+        (project_id, *clip_ids)
+    ).fetchall()
+    db.close()
+    flags = {r["clip_id"]: {"review_transcript": bool(r["review_transcript"]), "review_video": bool(r["review_video"])} for r in rows}
+    for cid in clip_ids:
+        flags.setdefault(cid, {"review_transcript": False, "review_video": False})
+    return flags
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/review-flags", methods=["POST"])
+def clip_review_flags_update(project_id, clip_id):
+    """Toggle the Review Transcript (orange) / Review Video (purple) flags
+    for one clip. Checkboxes auto-submit their own tiny form on change
+    (see clip_review.html/review_all.html), so this always receives the
+    FULL desired state of both checkboxes, not a single toggle."""
+    review_transcript = 1 if request.form.get("review_transcript") == "on" else 0
+    review_video = 1 if request.form.get("review_video") == "on" else 0
+    db = get_db()
+    db.execute(
+        """INSERT INTO clip_review_flags (project_id, clip_id, review_transcript, review_video, updated_at)
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(project_id, clip_id) DO UPDATE SET
+             review_transcript = excluded.review_transcript,
+             review_video = excluded.review_video,
+             updated_at = CURRENT_TIMESTAMP""",
+        (project_id, clip_id, review_transcript, review_video)
+    )
+    db.commit()
+    db.close()
+    return _review_flags_redirect(project_id, clip_id)
+
+
+@app.route("/projects/<int:project_id>/clips/<int:clip_id>/review-flags/approve", methods=["POST"])
+def clip_review_flags_approve(project_id, clip_id):
+    """'Approved' means the flagged issue was addressed -- clears both flags
+    back to normal rather than being a third independent flag. The frontend
+    already disables this checkbox unless one of the other two is set, but
+    this route doesn't re-check that -- clearing an already-clear row is a
+    harmless no-op."""
+    db = get_db()
+    db.execute(
+        "UPDATE clip_review_flags SET review_transcript = 0, review_video = 0, updated_at = CURRENT_TIMESTAMP "
+        "WHERE project_id = ? AND clip_id = ?",
+        (project_id, clip_id)
+    )
+    db.commit()
+    db.close()
+    return _review_flags_redirect(project_id, clip_id)
+
+
+def _review_flags_redirect(project_id, clip_id):
+    """Send the user back to whichever screen they came from (single-clip
+    Review vs. Review All), landing on this clip so the page doesn't jump
+    around after a checkbox click."""
+    came_from = request.form.get("came_from")
+    if came_from == "review_all":
+        return redirect(url_for("project_review_all", project_id=project_id) + f"#clip-{clip_id}")
+    return redirect(url_for("clip_review", project_id=project_id, clip_id=clip_id))
 
 
 @app.route("/projects/<int:project_id>/clips/<int:clip_id>/review/save", methods=["POST"])
@@ -730,6 +809,8 @@ def project_review_all(project_id):
         except degas_client.DegasError as e:
             degas_error = str(e)
 
+    review_flags = _get_review_flags(project_id, [c["clip_id"] for c in clips_data])
+
     return render_template(
         "review_all.html",
         clients=clients,
@@ -737,6 +818,7 @@ def project_review_all(project_id):
         project=proj,
         clips_data=clips_data,
         degas_error=degas_error,
+        review_flags=review_flags,
     )
 
 

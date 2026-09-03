@@ -46,7 +46,23 @@
   h1{font-size:24px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
   .sub a{color:var(--accent);text-decoration:none;}
-  .review-layout{display:flex;gap:28px;align-items:flex-start;}
+  .review-layout{display:flex;gap:28px;align-items:flex-start;
+    border:2px solid transparent;border-radius:14px;padding:14px;margin:-14px;transition:border-color .15s;}
+  .review-layout.flag-transcript{border-color:#ff8a2c;background:rgba(255,138,44,0.06);}
+  .review-layout.flag-video{border-color:#9b5de5;background:rgba(155,93,229,0.06);}
+  .review-layout.flag-both{border-image:repeating-linear-gradient(45deg,#ff8a2c 0 12px,#9b5de5 12px 24px) 2;
+    background:linear-gradient(rgba(255,138,44,0.05),rgba(155,93,229,0.05));}
+  .review-flags-bar{display:flex;gap:18px;align-items:center;margin-bottom:18px;flex-wrap:wrap;}
+  .flag-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;
+    padding:6px 12px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);}
+  .flag-checkbox input{cursor:pointer;}
+  .flag-checkbox.flag-orange{border-color:#ff8a2c55;}
+  .flag-checkbox.flag-orange input:checked ~ span, .flag-checkbox.flag-orange:has(input:checked){color:#ff8a2c;border-color:#ff8a2c;}
+  .flag-checkbox.flag-purple{border-color:#9b5de555;}
+  .flag-checkbox.flag-purple:has(input:checked){color:#9b5de5;border-color:#9b5de5;}
+  .flag-checkbox.flag-approve:has(input:not(:disabled)){border-color:#4ade8055;color:#4ade80;}
+  .flag-checkbox.flag-approve input:disabled{cursor:not-allowed;}
+  .flag-checkbox.flag-approve:has(input:disabled){opacity:.4;}
   .video-pane{flex:0 0 380px;position:sticky;top:24px;}
   .video-pane video{width:100%;border-radius:10px;background:#000;display:block;}
   .transcript-pane{flex:1;min-width:0;}
@@ -95,7 +111,33 @@
     <h1>Review transcript</h1>
     <div class="sub"><a href="{{ url_for('project_detail', project_id=project.id) }}">← Back to {{ project.name }}</a></div>
 
-    <div class="review-layout">
+    <div class="review-flags-bar">
+      <form method="POST" action="{{ url_for('clip_review_flags_update', project_id=project.id, clip_id=clip_id) }}" id="flagsForm">
+        <input type="hidden" name="came_from" value="review">
+        <input type="hidden" name="review_video" value="{{ 'on' if review_flags.review_video else '' }}">
+        <label class="flag-checkbox flag-orange">
+          <input type="checkbox" name="review_transcript" onchange="document.getElementById('flagsForm').submit()" {% if review_flags.review_transcript %}checked{% endif %}>
+          Review Transcript
+        </label>
+      </form>
+      <form method="POST" action="{{ url_for('clip_review_flags_update', project_id=project.id, clip_id=clip_id) }}" id="flagsFormVideo">
+        <input type="hidden" name="came_from" value="review">
+        <input type="hidden" name="review_transcript" value="{{ 'on' if review_flags.review_transcript else '' }}">
+        <label class="flag-checkbox flag-purple">
+          <input type="checkbox" name="review_video" onchange="document.getElementById('flagsFormVideo').submit()" {% if review_flags.review_video %}checked{% endif %}>
+          Review Video
+        </label>
+      </form>
+      <form method="POST" action="{{ url_for('clip_review_flags_approve', project_id=project.id, clip_id=clip_id) }}" id="approveForm">
+        <input type="hidden" name="came_from" value="review">
+        <label class="flag-checkbox flag-approve">
+          <input type="checkbox" onchange="if(this.checked) document.getElementById('approveForm').submit()" {% if not (review_flags.review_transcript or review_flags.review_video) %}disabled{% endif %}>
+          Approved
+        </label>
+      </form>
+    </div>
+
+    <div class="review-layout {% if review_flags.review_transcript and review_flags.review_video %}flag-both{% elif review_flags.review_transcript %}flag-transcript{% elif review_flags.review_video %}flag-video{% endif %}">
       <div class="video-pane">
         <video controls preload="metadata" src="{{ url_for('clip_video', project_id=project.id, clip_id=clip_id) }}"></video>
       </div>

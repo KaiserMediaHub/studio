@@ -53,7 +53,23 @@
   .clip-block{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:20px;margin-bottom:20px;}
   .clip-title{font-size:15px;font-weight:700;margin-bottom:14px;}
-  .review-layout{display:flex;gap:22px;align-items:flex-start;}
+  .review-layout{display:flex;gap:22px;align-items:flex-start;
+    border:2px solid transparent;border-radius:10px;padding:12px;margin:-12px;transition:border-color .15s;}
+  .review-layout.flag-transcript{border-color:#ff8a2c;background:rgba(255,138,44,0.06);}
+  .review-layout.flag-video{border-color:#9b5de5;background:rgba(155,93,229,0.06);}
+  .review-layout.flag-both{border-image:repeating-linear-gradient(45deg,#ff8a2c 0 12px,#9b5de5 12px 24px) 2;
+    background:linear-gradient(rgba(255,138,44,0.05),rgba(155,93,229,0.05));}
+  .review-flags-bar{display:flex;gap:14px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+  .flag-checkbox{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;
+    padding:5px 10px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);}
+  .flag-checkbox input{cursor:pointer;}
+  .flag-checkbox.flag-orange{border-color:#ff8a2c55;}
+  .flag-checkbox.flag-orange:has(input:checked){color:#ff8a2c;border-color:#ff8a2c;}
+  .flag-checkbox.flag-purple{border-color:#9b5de555;}
+  .flag-checkbox.flag-purple:has(input:checked){color:#9b5de5;border-color:#9b5de5;}
+  .flag-checkbox.flag-approve:has(input:not(:disabled)){border-color:#4ade8055;color:#4ade80;}
+  .flag-checkbox.flag-approve input:disabled{cursor:not-allowed;}
+  .flag-checkbox.flag-approve:has(input:disabled){opacity:.4;}
   .video-pane{flex:0 0 300px;position:sticky;top:24px;}
   .video-pane video{width:100%;border-radius:8px;background:#000;display:block;}
   .transcript-pane{flex:1;min-width:0;}
@@ -112,10 +128,36 @@
     {% if clips_data %}
       <form method="POST" action="{{ url_for('project_review_all_save', project_id=project.id) }}">
         {% for c in clips_data %}
-        <div class="clip-block">
+        <div class="clip-block" id="clip-{{ c.clip_id }}">
           <div class="clip-title">{{ c.filename }}</div>
           <input type="hidden" name="clip_id" value="{{ c.clip_id }}">
-          <div class="review-layout">
+
+          <!-- Flag checkboxes use JS fetch, not real <form> elements -- this
+               whole clip loop lives inside the outer "Save all changes" form,
+               and nested <form> tags are invalid HTML / unreliable to submit. -->
+          <div class="review-flags-bar">
+            <label class="flag-checkbox flag-orange">
+              <input type="checkbox" id="rt-{{ c.clip_id }}"
+                {% if review_flags.get(c.clip_id, {}).review_transcript %}checked{% endif %}
+                onchange="submitReviewFlags({{ project.id }}, {{ c.clip_id }})">
+              Review Transcript
+            </label>
+            <label class="flag-checkbox flag-purple">
+              <input type="checkbox" id="rv-{{ c.clip_id }}"
+                {% if review_flags.get(c.clip_id, {}).review_video %}checked{% endif %}
+                onchange="submitReviewFlags({{ project.id }}, {{ c.clip_id }})">
+              Review Video
+            </label>
+            <label class="flag-checkbox flag-approve">
+              <input type="checkbox" id="ap-{{ c.clip_id }}"
+                {% if not (review_flags.get(c.clip_id, {}).review_transcript or review_flags.get(c.clip_id, {}).review_video) %}disabled{% endif %}
+                onchange="if(this.checked) submitApproveFlag({{ project.id }}, {{ c.clip_id }})">
+              Approved
+            </label>
+          </div>
+
+          {% set rf = review_flags.get(c.clip_id, {}) %}
+          <div class="review-layout {% if rf.review_transcript and rf.review_video %}flag-both{% elif rf.review_transcript %}flag-transcript{% elif rf.review_video %}flag-video{% endif %}">
             <div class="video-pane">
               <video controls preload="metadata" src="{{ url_for('clip_video', project_id=project.id, clip_id=c.clip_id) }}"></video>
             </div>
@@ -143,5 +185,35 @@
     {% endif %}
   </div>
 </div>
+<script>
+function submitReviewFlags(projectId, clipId) {
+  const rt = document.getElementById('rt-' + clipId).checked;
+  const rv = document.getElementById('rv-' + clipId).checked;
+  const body = new URLSearchParams();
+  body.set('review_transcript', rt ? 'on' : '');
+  body.set('review_video', rv ? 'on' : '');
+  body.set('came_from', 'review_all');
+  fetch('/projects/' + projectId + '/clips/' + clipId + '/review-flags', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body,
+  }).finally(() => {
+    location.hash = 'clip-' + clipId;
+    location.reload();
+  });
+}
+function submitApproveFlag(projectId, clipId) {
+  const body = new URLSearchParams();
+  body.set('came_from', 'review_all');
+  fetch('/projects/' + projectId + '/clips/' + clipId + '/review-flags/approve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body,
+  }).finally(() => {
+    location.hash = 'clip-' + clipId;
+    location.reload();
+  });
+}
+</script>
 </body>
 </html>

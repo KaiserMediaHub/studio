@@ -139,5 +139,25 @@ def init_db():
         )
     """)
 
+    # Transcript/video review flags (Ben's ask, 2026-08-27). Team members
+    # reviewing a clip can flag "needs transcript review" and/or "needs
+    # video review" -- purely visual QA markers, independent of the
+    # confidence-based glossary flagging above. One row per (project, clip);
+    # both columns default to 0 (unflagged/normal). "Approved" isn't a
+    # separate column -- it's an action that zeroes both columns back out
+    # (see clip_review_flags_approve() in app.py), so there's nothing to
+    # get out of sync between an "approved" flag and the two review flags.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS clip_review_flags (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id          INTEGER NOT NULL,
+            clip_id             INTEGER NOT NULL,   -- Degas's own clip id
+            review_transcript   INTEGER NOT NULL DEFAULT 0,
+            review_video        INTEGER NOT NULL DEFAULT 0,
+            updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(project_id, clip_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
