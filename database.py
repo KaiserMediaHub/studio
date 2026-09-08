@@ -46,6 +46,14 @@ def init_db():
     for stmt in (
         "ALTER TABLE projects ADD COLUMN hemingway_batch_id INTEGER",
         "ALTER TABLE projects ADD COLUMN archived_at TIMESTAMP",
+        # Ben's ask 2026-09-03: "who is this assigned to" on the dashboard.
+        # Points at access_codes.id rather than a free-text name -- reuses
+        # the identity work already in place (labeled, revocable codes)
+        # instead of inventing a second, disconnected notion of "who."
+        # NULL = unassigned. No FK constraint (SQLite ALTER TABLE can't add
+        # one after the fact) -- app.py is careful to only ever write a
+        # valid access_codes.id or NULL here.
+        "ALTER TABLE projects ADD COLUMN assigned_code_id INTEGER",
     ):
         try:
             conn.execute(stmt)

@@ -198,6 +198,7 @@ def dashboard():
     active_client = None
     projects = []
     degas_error = None
+    active_codes = []
     if clients:
         active_client = next(
             (c for c in clients if c["id"] == active_client_id),
@@ -214,6 +215,15 @@ def dashboard():
                 "SELECT * FROM projects WHERE client_id = ? AND archived_at IS NULL ORDER BY created_at DESC",
                 (active_client["id"],)
             ).fetchall()
+
+        # "Who is this assigned to" (Ben's ask 2026-09-03) -- assignee pool
+        # is the active Access Codes list, not a separate names table. Shown
+        # revoked codes stay resolvable as a label (so old assignments don't
+        # go blank) but don't appear as options to newly assign someone to.
+        active_codes = db.execute(
+            "SELECT id, label FROM access_codes WHERE revoked_at IS NULL ORDER BY label"
+        ).fetchall()
+        code_labels = {c["id"]: c["label"] for c in db.execute("SELECT id, label FROM access_codes").fetchall()}
 
         # Task #7: Intake-through-Clipped phase comes from Degas's own
         # clips.status, read live rather than duplicated -- see
@@ -238,6 +248,7 @@ def dashboard():
                 "AND (review_transcript = 1 OR review_video = 1)",
                 (p["id"],)
             ).fetchone()["n"]
+            assigned_code_id = p["assigned_code_id"] if "assigned_code_id" in p.keys() else None
             projects.append({
                 "id": p["id"],
                 "name": p["name"],
@@ -248,6 +259,8 @@ def dashboard():
                 "created_at": p["created_at"],
                 "archived_at": p["archived_at"],
                 "review_needed": review_needed,
+                "assigned_code_id": assigned_code_id,
+                "assigned_label": code_labels.get(assigned_code_id),
             })
         db.close()
 
@@ -262,6 +275,7 @@ def dashboard():
         phase_labels=PHASE_LABELS,
         show_archived=show_archived,
         cleanup_count=len(cleanup_candidates),
+        active_codes=active_codes,
     )
 
 
@@ -431,6 +445,23 @@ def advance_phase(project_id):
     if proj and allowed_transitions.get(proj["phase"]) == target:
         db.execute("UPDATE projects SET phase = ? WHERE id = ?", (target, project_id))
         db.commit()
+    db.close()
+    return redirect(url_for("dashboard", client_id=client_id))
+
+
+@app.route("/projects/<int:project_id>/assign", methods=["POST"])
+def project_assign(project_id):
+    """Sets/clears who a project is assigned to (Ben's ask, 2026-09-03).
+    Assignee is an access_codes.id, or blank to unassign -- deliberately NOT
+    validated against active_codes here, so a project stays assigned (and
+    still shows the person's label) even if their code gets revoked later;
+    only the dropdown for NEW assignments is limited to active codes."""
+    client_id = request.form.get("client_id", type=int)
+    raw = request.form.get("assigned_code_id", "").strip()
+    assigned_code_id = int(raw) if raw else None
+    db = get_db()
+    db.execute("UPDATE projects SET assigned_code_id = ? WHERE id = ?", (assigned_code_id, project_id))
+    db.commit()
     db.close()
     return redirect(url_for("dashboard", client_id=client_id))
 

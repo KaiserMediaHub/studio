@@ -318,7 +318,7 @@
         <div class="qp">
           <div class="qp-top">
             <span class="status-pill status-{{ p.status }}">{{ p.status }}</span>
-            {% if p.title %}<span class="qp-source-title">{{ p.title }}</span>{% endif %}
+            {% if p.title or p.suggested_youtube_title %}<span class="qp-source-title">{{ p.title or p.suggested_youtube_title }}</span>{% endif %}
           </div>
           <form method="POST" action="{{ url_for('quick_posts_edit', post_id=p.id) }}">
             <input type="hidden" name="client_id" value="{{ active_client.id }}">

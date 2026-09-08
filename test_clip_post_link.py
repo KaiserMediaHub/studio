@@ -1,9 +1,13 @@
 import io
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
-os.environ["DB_PATH"] = "/tmp/studio_test/data/test_studio_clip_link.db"
+# Windows-safe path (Ben hit this exact /tmp/ issue with a Hemingway test
+# earlier, 2026-09-03 -- os.makedirs in database.py creates the parent dir
+# for us, so any writable temp location works).
+os.environ["DB_PATH"] = os.path.join(tempfile.gettempdir(), "studio_test_data", "test_studio_clip_link.db")
 if os.path.exists(os.environ["DB_PATH"]):
     os.remove(os.environ["DB_PATH"])
 
@@ -128,6 +132,37 @@ def test_project_detail_shows_media_capable_channels_and_gating():
     check("project_detail: YouTube checkbox HIDDEN for unexported clip's post", 'value="int-yt"' not in body)
     check("project_detail: LinkedIn checkbox still shown", 'value="int-li"' in body)
     check("project_detail: shows export-first hint", "isn&#39;t exported yet" in body or "isn't exported yet" in body)
+
+
+def test_project_detail_falls_back_to_clip_filename_when_title_column_empty():
+    """Ben's ask, 2026-09-08: 'no titles/names attached to the post writing
+    section... hard to correlate which post is for which asset.' Root cause:
+    the visible title badge only checked the stored `title` DB column, which
+    is NULL for any post inserted without it set (older posts, quick posts,
+    even some current code paths -- see the other tests in this file that
+    insert posts with no title arg at all). The route already computes
+    suggested_youtube_title from the linked clip's filename for the YouTube
+    field further down the same card; the badge just wasn't using it."""
+    pid = make_project("Title Fallback Test")
+    link_postiz()
+    postiz_client.list_integrations = lambda group_id: INTEGRATIONS
+
+    db = database.get_db()
+    db.execute(
+        "INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id) VALUES (?, ?, 'project', ?, 'draft', ?, ?)",
+        (CLIENT_ID, pid, "caption with no title column set", 201, 71)
+    )
+    db.commit()
+    db.close()
+
+    degas_client.get_project = lambda p: {"clips": [
+        {"id": 71, "status": "transcribed", "filename": "founder_story_raw.mp4", "original_filename": "founder_story_raw.mp4"}
+    ]}
+
+    resp = client.get(f"/projects/{pid}")
+    body = resp.get_data(as_text=True)
+    check("project_detail: title badge falls back to clip filename when title column is empty",
+          "founder_story_raw" in body, body[:0])
 
 
 def test_project_detail_shows_youtube_when_clip_exported():
@@ -273,6 +308,7 @@ def test_schedule_text_only_channel_never_touches_media():
 test_build_transcript_returns_ordered_clip_ids()
 test_write_posts_stores_clip_id_per_post()
 test_project_detail_shows_media_capable_channels_and_gating()
+test_project_detail_falls_back_to_clip_filename_when_title_column_empty()
 test_project_detail_shows_youtube_when_clip_exported()
 test_schedule_youtube_blocked_when_clip_not_exported()
 test_schedule_quick_post_blocked_for_media_required_no_clip()

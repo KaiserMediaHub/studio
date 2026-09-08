@@ -66,6 +66,10 @@
   .proj-meta{color:var(--text-dim);font-size:12px;margin-top:2px;}
   .phase-pill{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;
     background:var(--accent-soft);color:var(--accent);white-space:nowrap;}
+  .assignee-select{font-size:12px;font-weight:600;padding:5px 8px;border-radius:8px;
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    margin-left:8px;cursor:pointer;max-width:150px;}
+  .assignee-select.unassigned{color:var(--text-dim);font-weight:400;font-style:italic;}
   .advance-btn{margin-left:10px;background:none;border:1px solid var(--border);color:var(--text-dim);
     border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;}
   .advance-btn:hover{border-color:var(--accent);color:var(--accent);}
@@ -168,6 +172,19 @@
               </div>
               <div>
                 <span class="phase-pill">{{ phase_labels.get(p.phase, p.phase) }}</span>
+                <form style="display:inline" method="POST" action="{{ url_for('project_assign', project_id=p.id) }}">
+                  <input type="hidden" name="client_id" value="{{ active_client.id }}">
+                  <select name="assigned_code_id" class="assignee-select {% if not p.assigned_code_id %}unassigned{% endif %}"
+                          onchange="this.form.submit()">
+                    <option value="" {% if not p.assigned_code_id %}selected{% endif %}>Unassigned</option>
+                    {% for code in active_codes %}
+                      <option value="{{ code.id }}" {% if p.assigned_code_id == code.id %}selected{% endif %}>{{ code.label }}</option>
+                    {% endfor %}
+                    {% if p.assigned_code_id and p.assigned_code_id not in active_codes|map(attribute='id')|list %}
+                      <option value="{{ p.assigned_code_id }}" selected>{{ p.assigned_label or 'Revoked code' }} (revoked)</option>
+                    {% endif %}
+                  </select>
+                </form>
                 {% if p.phase == 'clipped' %}
                   <form style="display:inline" method="POST" action="{{ url_for('advance_phase', project_id=p.id) }}">
                     <input type="hidden" name="client_id" value="{{ active_client.id }}">
