@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+<link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+<title>Tasks — KMG Studio</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#181b22; --surface-2:#1f2330;
+    --border:#2a2f3d; --text:#f4f4f6; --text-dim:#9498a8;
+    --accent:#ff6a2c; --accent-soft:#2a1c14; --radius:10px;
+    --danger:#e05252; --good:#10b981; --warn:#e0a952;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  .app{display:flex;min-height:100vh;}
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+    padding:24px 16px;display:flex;flex-direction:column;gap:28px;}
+  .brand{font-size:19px;font-weight:800;padding:0 8px;}
+  .brand span{color:var(--accent);}
+  .client-select{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;margin-top:10px;cursor:pointer;}
+  .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);
+    padding:0 8px;margin-bottom:6px;font-weight:700;}
+  .nav-item{display:block;padding:10px;border-radius:10px;font-size:14px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .nav-item:hover{background:var(--surface-2);}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent);}
+  .nav-group summary{list-style:none;cursor:pointer;}
+  .nav-group summary::-webkit-details-marker{display:none;}
+  .nav-toggle{display:flex;align-items:center;justify-content:space-between;}
+  .nav-toggle::after{content:"\25BE";font-size:10px;color:var(--text-dim);}
+  .nav-group[open] .nav-toggle::after{content:"\25B4";}
+  .nav-submenu{margin-left:6px;border-left:1px solid var(--border);padding-left:10px;
+    margin-top:2px;margin-bottom:6px;}
+  .nav-subitem{display:block;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .nav-subitem:hover{background:var(--surface-2);}
+  .nav-subitem.active{background:var(--accent-soft);color:var(--accent);}
+  .main{flex:1;padding:32px 40px;max-width:920px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
+  .section{margin-bottom:32px;}
+  .section-title{font-size:14px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:6px 16px;}
+  .empty{color:var(--text-dim);font-size:13px;padding:14px 0;}
+  .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
+  .btn{border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;}
+  .btn-primary{background:var(--accent);color:#151515;}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .new-project-form{display:flex;gap:8px;margin-bottom:20px;}
+  .new-project-form input{flex:1;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:9px 12px;font-size:14px;}
+  .project-row{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 0;border-bottom:1px solid var(--border);gap:10px;text-decoration:none;color:inherit;}
+  .project-row:last-child{border-bottom:none;}
+  .project-row:hover .project-name{color:var(--accent);}
+  .project-name{font-weight:700;font-size:14px;}
+  .project-count{color:var(--text-dim);font-size:12px;margin-top:2px;}
+  .badge{font-size:11px;padding:2px 9px;border-radius:999px;background:var(--surface-2);color:var(--text-dim);font-weight:700;}
+  .task-row{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 0;border-bottom:1px solid var(--border);gap:10px;}
+  .task-row:last-child{border-bottom:none;}
+  .task-title{font-weight:600;font-size:14px;}
+  .task-meta{color:var(--text-dim);font-size:12px;margin-top:2px;display:flex;gap:8px;align-items:center;}
+  .due-overdue{color:var(--danger);font-weight:700;}
+  .due-soon{color:var(--warn);font-weight:700;}
+  select.inline-select{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:6px;padding:5px 8px;font-size:12px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div>
+      <div class="brand">KMG <span>Studio</span></div>
+      {% if clients %}
+      <select class="client-select" onchange="if(this.value) location.href=this.value;">
+        {% for c in clients %}
+          <option value="{{ url_for('dashboard', client_id=c.id) }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    {% if active_client %}
+    <div>
+      <div class="label">Menu</div>
+      <a class="nav-item" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
+      <a class="nav-item" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
+      <a class="nav-item" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
+      <a class="nav-item" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item active" href="{{ url_for('tasks_view') }}">Tasks</a>
+      <details class="nav-group">
+        <summary class="nav-item nav-toggle">Settings</summary>
+        <div class="nav-submenu">
+          <a class="nav-subitem" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+          <a class="nav-subitem" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
+          {% if session.is_admin %}
+          <a class="nav-subitem" href="{{ url_for('access_codes_view') }}">Access Codes</a>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+    <a class="logout" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+  <div class="main">
+    <h1>Tasks</h1>
+    <div class="sub">Internal team tracker -- separate from client content projects. Grouped into projects, each task has an owner and a due date.</div>
+
+    <div class="section">
+      <div class="section-title">What's due</div>
+      <div class="card">
+        {% if open_tasks %}
+          {% for t in open_tasks %}
+          <div class="task-row">
+            <div>
+              <div class="task-title">{{ t.title }}</div>
+              <div class="task-meta">
+                <span class="badge">{{ t.project_name }}</span>
+                <span>{{ t.assignee_label or 'Unassigned' }}</span>
+                {% if t.due_date %}
+                  <span class="{% if t.due_date < today %}due-overdue{% elif t.due_date == today %}due-soon{% endif %}">Due {{ t.due_date }}</span>
+                {% else %}
+                  <span>No due date</span>
+                {% endif %}
+              </div>
+            </div>
+            <form method="POST" action="{{ url_for('task_update', task_id=t.id) }}">
+              <input type="hidden" name="next" value="{{ url_for('tasks_view') }}">
+              <select name="status" class="inline-select" onchange="this.form.submit()">
+                <option value="todo" {% if t.status=='todo' %}selected{% endif %}>To do</option>
+                <option value="in_progress" {% if t.status=='in_progress' %}selected{% endif %}>In progress</option>
+                <option value="done" {% if t.status=='done' %}selected{% endif %}>Done</option>
+              </select>
+            </form>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">Nothing open right now.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Projects</div>
+      <form class="new-project-form" method="POST" action="{{ url_for('task_project_new') }}">
+        <input type="text" name="name" placeholder="New project name (e.g. Q4 Marketing Push)" required>
+        <button class="btn btn-primary" type="submit">Add project</button>
+      </form>
+      <div class="card">
+        {% if projects %}
+          {% for p in projects %}
+          <a class="project-row" href="{{ url_for('task_project_detail', task_project_id=p.id) }}">
+            <div>
+              <div class="project-name">{{ p.name }}</div>
+              <div class="project-count">{{ p.open_count }} open task{{ '' if p.open_count == 1 else 's' }}</div>
+            </div>
+          </a>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No projects yet. Add one above to start tracking tasks.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

@@ -185,6 +185,39 @@ def init_db():
             created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Team task tracker (Ben's ask, 2026-09-11): a general internal
+    # task/project tracker for the KMG team, deliberately SEPARATE from the
+    # `projects` table above -- that one is Studio's video-content pipeline
+    # (client_id-scoped, tied to Degas/Hemingway). This is unrelated: plain
+    # internal work items, not necessarily tied to any client at all. Named
+    # `task_projects` (not `projects`) specifically to avoid colliding with
+    # the existing concept. "List with assignees + due dates" per Ben's
+    # explicit choice over a kanban board -- assigned_code_id reuses the
+    # existing access_codes identity system (see the `assigned_code_id`
+    # column on `projects` above for the same pattern/reasoning).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_projects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            archived_at TIMESTAMP,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_project_id  INTEGER NOT NULL,
+            title            TEXT NOT NULL,
+            notes            TEXT DEFAULT '',
+            assigned_code_id INTEGER,                       -- NULL = unassigned; points at access_codes.id
+            due_date         TEXT,                           -- ISO date (YYYY-MM-DD), nullable
+            status           TEXT NOT NULL DEFAULT 'todo',   -- todo / in_progress / done
+            completed_at     TIMESTAMP,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_project_id) REFERENCES task_projects(id) ON DELETE CASCADE
+        )
+    """)
+
     # Seed exactly once, from the existing APP_PASSWORD env var, so this
     # migration doesn't lock Ben out on first deploy -- his current password
     # keeps working, now as the admin code labeled "Admin (original)".

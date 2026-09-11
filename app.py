@@ -802,6 +802,18 @@ def clip_review(project_id, clip_id):
     except degas_client.DegasError as e:
         return render_template("error.html", message=str(e)), 502
 
+    # Ben's report (2026-09-11): the review view didn't show which clip was
+    # being reviewed. Same lookup review_all.html already uses (task #23) --
+    # fetch the project's clip list from Degas and find this one's filename.
+    clip_filename = None
+    try:
+        degas_proj = degas_client.get_project(proj["degas_project_id"])
+        clip = next((c for c in degas_proj.get("clips", []) if c["id"] == clip_id), None)
+        if clip:
+            clip_filename = clip.get("original_filename") or clip.get("filename")
+    except degas_client.DegasError:
+        pass  # non-critical -- template falls back to a generic label
+
     flags = _get_review_flags(project_id, [clip_id])[clip_id]
 
     return render_template(
@@ -810,6 +822,7 @@ def clip_review(project_id, clip_id):
         active_client=active_client,
         project=proj,
         clip_id=clip_id,
+        clip_filename=clip_filename,
         segments=seg_data.get("current") or [],
         review_flags=flags,
     )
@@ -2048,6 +2061,190 @@ def nextcloud_setup_link(client_id):
     db.commit()
     db.close()
     return redirect(url_for("nextcloud_setup_view", client_id=client_id))
+
+
+# ── Tasks (Ben's ask, 2026-09-11) ───────────────────────────────────────────────
+# General internal team task/project tracker, deliberately separate from the
+# client_id-scoped `projects` table (Studio's video-content pipeline) -- see
+# database.py's comment on `task_projects`/`tasks`. List-with-assignees-and-
+# due-dates, not a kanban board, per Ben's explicit choice. Reuses the
+# existing access_codes identity system for "who" rather than inventing a
+# second notion of users.
+
+def _active_codes():
+    db = get_db()
+    codes = db.execute(
+        "SELECT id, label FROM access_codes WHERE revoked_at IS NULL ORDER BY label"
+    ).fetchall()
+    db.close()
+    return codes
+
+
+def _nav_clients():
+    # Tasks isn't client-scoped, but the sidebar (duplicated across every
+    # template, see dashboard.html) only renders its Menu block when
+    # active_client is set -- same pattern access_codes_view already uses.
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError:
+        clients = []
+    return clients
+
+
+@app.route("/tasks")
+def tasks_view():
+    db = get_db()
+    projects = db.execute(
+        """SELECT tp.*,
+                  (SELECT COUNT(*) FROM tasks t WHERE t.task_project_id = tp.id AND t.status != 'done') AS open_count
+           FROM task_projects tp
+           WHERE tp.archived_at IS NULL
+           ORDER BY tp.created_at DESC"""
+    ).fetchall()
+    # Cross-project "what's due" view -- open tasks everywhere, soonest due
+    # date first, undated tasks last. High-value for a daily check-in without
+    # having to click into every project individually.
+    open_tasks = db.execute(
+        """SELECT t.*, tp.name AS project_name, ac.label AS assignee_label
+           FROM tasks t
+           JOIN task_projects tp ON tp.id = t.task_project_id
+           LEFT JOIN access_codes ac ON ac.id = t.assigned_code_id
+           WHERE t.status != 'done' AND tp.archived_at IS NULL
+           ORDER BY (t.due_date IS NULL), t.due_date ASC, t.created_at ASC"""
+    ).fetchall()
+    db.close()
+    clients = _nav_clients()
+    return render_template(
+        "tasks.html",
+        clients=clients,
+        active_client=clients[0] if clients else None,
+        projects=projects,
+        open_tasks=open_tasks,
+        codes=_active_codes(),
+        today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
+
+
+@app.route("/tasks/projects/new", methods=["POST"])
+def task_project_new():
+    name = (request.form.get("name") or "").strip()
+    if name:
+        db = get_db()
+        db.execute("INSERT INTO task_projects (name) VALUES (?)", (name,))
+        db.commit()
+        db.close()
+    return redirect(url_for("tasks_view"))
+
+
+@app.route("/tasks/projects/<int:task_project_id>")
+def task_project_detail(task_project_id):
+    db = get_db()
+    project = db.execute("SELECT * FROM task_projects WHERE id = ?", (task_project_id,)).fetchone()
+    if not project:
+        db.close()
+        return redirect(url_for("tasks_view"))
+    tasks = db.execute(
+        """SELECT t.*, ac.label AS assignee_label
+           FROM tasks t
+           LEFT JOIN access_codes ac ON ac.id = t.assigned_code_id
+           WHERE t.task_project_id = ?
+           ORDER BY (t.status = 'done'), (t.due_date IS NULL), t.due_date ASC, t.created_at ASC""",
+        (task_project_id,)
+    ).fetchall()
+    db.close()
+    clients = _nav_clients()
+    return render_template(
+        "task_project_detail.html",
+        clients=clients,
+        active_client=clients[0] if clients else None,
+        project=project,
+        tasks=tasks,
+        codes=_active_codes(),
+        today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
+
+
+@app.route("/tasks/projects/<int:task_project_id>/archive", methods=["POST"])
+def task_project_archive(task_project_id):
+    db = get_db()
+    db.execute("UPDATE task_projects SET archived_at = CURRENT_TIMESTAMP WHERE id = ?", (task_project_id,))
+    db.commit()
+    db.close()
+    return redirect(url_for("tasks_view"))
+
+
+@app.route("/tasks/projects/<int:task_project_id>/tasks/new", methods=["POST"])
+def task_new(task_project_id):
+    title = (request.form.get("title") or "").strip()
+    if title:
+        due_date = (request.form.get("due_date") or "").strip() or None
+        assigned = request.form.get("assigned_code_id") or None
+        assigned_code_id = int(assigned) if assigned else None
+        db = get_db()
+        db.execute(
+            "INSERT INTO tasks (task_project_id, title, due_date, assigned_code_id) VALUES (?, ?, ?, ?)",
+            (task_project_id, title, due_date, assigned_code_id)
+        )
+        db.commit()
+        db.close()
+    return redirect(url_for("task_project_detail", task_project_id=task_project_id))
+
+
+@app.route("/tasks/<int:task_id>/update", methods=["POST"])
+def task_update(task_id):
+    """Single endpoint for editing status, assignee, or due date -- accepts
+    whichever of these fields are present in the form body rather than
+    having a separate route per field (this task is edited from both the
+    project-detail list and the cross-project "what's due" list, and both
+    reuse the same small inline-edit controls)."""
+    db = get_db()
+    task = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        db.close()
+        return redirect(url_for("tasks_view"))
+
+    if "status" in request.form:
+        status = request.form.get("status")
+        if status in ("todo", "in_progress", "done"):
+            completed_at = "CURRENT_TIMESTAMP" if status == "done" else "NULL"
+            db.execute(
+                f"UPDATE tasks SET status = ?, completed_at = {completed_at} WHERE id = ?",
+                (status, task_id)
+            )
+    if "assigned_code_id" in request.form:
+        assigned = request.form.get("assigned_code_id") or None
+        db.execute(
+            "UPDATE tasks SET assigned_code_id = ? WHERE id = ?",
+            (int(assigned) if assigned else None, task_id)
+        )
+    if "due_date" in request.form:
+        due_date = (request.form.get("due_date") or "").strip() or None
+        db.execute("UPDATE tasks SET due_date = ? WHERE id = ?", (due_date, task_id))
+    if "title" in request.form:
+        title = (request.form.get("title") or "").strip()
+        if title:
+            db.execute("UPDATE tasks SET title = ? WHERE id = ?", (title, task_id))
+
+    db.commit()
+    db.close()
+
+    # Redirect back wherever the edit came from (project detail vs. the
+    # all-tasks dashboard) rather than always bouncing to one fixed page.
+    next_url = request.form.get("next") or url_for("task_project_detail", task_project_id=task["task_project_id"])
+    return redirect(next_url)
+
+
+@app.route("/tasks/<int:task_id>/delete", methods=["POST"])
+def task_delete(task_id):
+    db = get_db()
+    task = db.execute("SELECT task_project_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    db.commit()
+    db.close()
+    next_url = request.form.get("next") or (
+        url_for("task_project_detail", task_project_id=task["task_project_id"]) if task else url_for("tasks_view")
+    )
+    return redirect(next_url)
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

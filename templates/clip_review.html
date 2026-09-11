@@ -73,6 +73,7 @@
   .btn{border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;
     background:var(--accent);color:#151515;margin-top:16px;}
   .empty{color:var(--text-dim);font-size:14px;}
+  .clip-title{font-size:15px;font-weight:700;margin-bottom:16px;}
 </style>
 </head>
 <body>
@@ -95,6 +96,7 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item {% if request.endpoint == 'tasks_view' %}active{% endif %}" href="{{ url_for('tasks_view') }}">Tasks</a>
       <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}open{% endif %}>
         <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
@@ -110,6 +112,7 @@
   <div class="main">
     <h1>Review transcript</h1>
     <div class="sub"><a href="{{ url_for('project_detail', project_id=project.id) }}">← Back to {{ project.name }}</a></div>
+    <div class="clip-title">{{ clip_filename or ("Clip #" ~ clip_id) }}</div>
 
     <div class="review-flags-bar">
       <form method="POST" action="{{ url_for('clip_review_flags_update', project_id=project.id, clip_id=clip_id) }}" id="flagsForm">

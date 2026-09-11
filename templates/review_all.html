@@ -103,6 +103,7 @@
       <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item {% if request.endpoint == 'tasks_view' %}active{% endif %}" href="{{ url_for('tasks_view') }}">Tasks</a>
       <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}open{% endif %}>
         <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">

@@ -178,6 +178,26 @@ def test_came_from_review_all_redirects_with_anchor():
           resp.headers.get("Location"))
 
 
+def test_clip_review_shows_clip_filename():
+    """Regression test for Ben's report (2026-09-11): the single-clip
+    Caption Review view didn't show which clip was being reviewed. It
+    should display the clip's filename (same lookup review_all.html
+    already uses), falling back to a generic "Clip #<id>" label if Degas
+    can't be reached for the project's clip list."""
+    pid = make_project("Clip Title Test")
+    resp = client.get(f"/projects/{pid}/clips/{CLIP_ID}/review")
+    check("clip_review: shows clip filename", b"clip.mp4" in resp.data)
+
+    real_get_project = degas_client.get_project
+    degas_client.get_project = lambda p: (_ for _ in ()).throw(degas_client.DegasError("down"))
+    try:
+        resp = client.get(f"/projects/{pid}/clips/{CLIP_ID}/review")
+        check("clip_review: falls back to generic label when Degas project lookup fails",
+              resp.status_code == 200 and f"Clip #{CLIP_ID}".encode() in resp.data)
+    finally:
+        degas_client.get_project = real_get_project
+
+
 if __name__ == "__main__":
     test_default_state_is_unflagged()
     test_toggle_transcript_flag_persists()
@@ -186,6 +206,7 @@ if __name__ == "__main__":
     test_dashboard_badge_reflects_unresolved_flags()
     test_review_all_shows_flag_state_per_clip()
     test_came_from_review_all_redirects_with_anchor()
+    test_clip_review_shows_clip_filename()
 
     print(f"\nTOTAL: {results['pass']} passed, {results['fail']} failed")
     if results["fail"]:
