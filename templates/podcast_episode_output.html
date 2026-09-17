@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary Meta -->
+  <title>{{ title }}</title>
+  <meta name="description" content="{{ description }}" />
+  <meta name="keywords" content="{{ key_topics | join(', ') }}" />
+  <meta name="robots" content="index, follow" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="video.episode" />
+  <meta property="og:title" content="{{ title }}" />
+  <meta property="og:description" content="{{ description }}" />
+  <meta property="og:url" content="{{ youtube_url }}" />
+  <meta property="og:video" content="https://www.youtube.com/embed/{{ youtube_id }}" />
+  <meta property="og:image" content="https://img.youtube.com/vi/{{ youtube_id }}/maxresdefault.jpg" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ title }}" />
+  <meta name="twitter:description" content="{{ description }}" />
+  <meta name="twitter:image" content="https://img.youtube.com/vi/{{ youtube_id }}/maxresdefault.jpg" />
+
+  <!-- Schema.org JSON-LD — PodcastEpisode -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "PodcastEpisode",
+    "name": {{ title | tojson }},
+    "description": {{ description | tojson }},
+    "url": {{ youtube_url | tojson }},
+    "embedUrl": "https://www.youtube.com/embed/{{ youtube_id }}",
+    "thumbnailUrl": "https://img.youtube.com/vi/{{ youtube_id }}/maxresdefault.jpg",
+    "keywords": {{ key_topics | tojson }},
+    "transcript": {{ transcript | tojson }},
+    "associatedMedia": {
+      "@type": "VideoObject",
+      "name": {{ title | tojson }},
+      "embedUrl": "https://www.youtube.com/embed/{{ youtube_id }}",
+      "thumbnailUrl": "https://img.youtube.com/vi/{{ youtube_id }}/maxresdefault.jpg",
+      "description": {{ description | tojson }}
+    }
+  }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary:   {{ primary_color }};
+      --secondary: {{ secondary_color }};
+      --accent:    {{ accent_color }};
+      --text:      #f0f0f4;
+      --text-muted: rgba(240,240,244,0.6);
+      --surface:   rgba(255,255,255,0.05);
+      --border:    rgba(255,255,255,0.1);
+      --radius:    12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--primary);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      background: var(--secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+    }
+
+    {% if logo_data_uri %}
+    .nav-logo img {
+      {% if logo_orientation == 'square' %}
+        height: 40px;
+        width: 40px;
+        object-fit: contain;
+      {% elif logo_orientation == 'vertical' %}
+        height: 56px;
+        width: auto;
+        object-fit: contain;
+      {% else %}
+        height: 36px;
+        width: auto;
+        max-width: 180px;
+        object-fit: contain;
+      {% endif %}
+    }
+    {% endif %}
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(160deg, var(--secondary) 0%, var(--primary) 100%);
+      padding: 64px 24px 48px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-topics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .topic-chip {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .hero h1 {
+      font-size: clamp(1.6rem, 4vw, 2.6rem);
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      max-width: 820px;
+      margin: 0 auto 16px;
+    }
+
+    .hero-description {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      max-width: 620px;
+      margin: 0 auto;
+    }
+
+    /* ── Layout ── */
+    .page-body {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Video ── */
+    .video-wrapper {
+      position: relative;
+      padding-bottom: 56.25%;
+      height: 0;
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: #000;
+      margin-bottom: 48px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      border: none;
+    }
+
+    /* ── Pull Quotes ── */
+    section { margin-bottom: 56px; }
+
+    section h2 {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 24px;
+    }
+
+    .quotes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    blockquote {
+      background: var(--surface);
+      border-left: 4px solid var(--accent);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 20px 22px;
+      font-size: 1.05rem;
+      font-style: italic;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    blockquote::before { content: '\201C'; }
+    blockquote::after  { content: '\201D'; }
+
+    /* ── Transcript ── */
+    .transcript-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+
+    .transcript-container::-webkit-scrollbar { width: 6px; }
+    .transcript-container::-webkit-scrollbar-track { background: transparent; }
+    .transcript-container::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    /* The transcript text is rendered as plain prose for maximum crawlability */
+    .transcript-text {
+      font-size: 0.95rem;
+      line-height: 1.8;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── CTA ── */
+    .cta-block {
+      background: linear-gradient(135deg, var(--secondary) 0%, var(--accent) 200%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 48px 32px;
+      text-align: center;
+    }
+
+    .cta-block h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
+    .cta-block p {
+      color: var(--text-muted);
+      margin-bottom: 28px;
+      font-size: 1rem;
+    }
+
+    .cta-btn {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      text-decoration: none;
+      padding: 14px 36px;
+      border-radius: 50px;
+      transition: opacity 0.15s, transform 0.1s;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .cta-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--secondary);
+      border-top: 1px solid var(--border);
+      padding: 24px;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .hero { padding: 40px 16px 32px; }
+      .page-body { padding: 32px 16px 60px; }
+      .transcript-container { padding: 18px 20px; }
+      .cta-block { padding: 32px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Navigation ── -->
+  <nav aria-label="Site navigation">
+    <div class="nav-logo">
+      {% if logo_data_uri %}
+        <img src="{{ logo_data_uri }}" alt="Podcast logo" />
+      {% else %}
+        <span style="font-weight:700;font-size:1.1rem;">🎙 Podcast</span>
+      {% endif %}
+    </div>
+    <a href="{{ cta_url }}" class="cta-btn" style="padding:9px 22px;font-size:0.85rem;">
+      {{ cta_text }}
+    </a>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <header class="hero" role="banner">
+    <div class="hero-topics" aria-label="Episode topics">
+      {% for topic in key_topics %}
+        <span class="topic-chip">{{ topic }}</span>
+      {% endfor %}
+    </div>
+    <h1>{{ title }}</h1>
+    <p class="hero-description">{{ description }}</p>
+  </header>
+
+  <!-- ── Page Body ── -->
+  <main class="page-body">
+
+    <!-- Video embed -->
+    <div class="video-wrapper" aria-label="Episode video">
+      <iframe
+        src="https://www.youtube.com/embed/{{ youtube_id }}"
+        title="{{ title }}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen
+        loading="lazy">
+      </iframe>
+    </div>
+
+    <!-- Pull Quotes -->
+    <section aria-labelledby="quotes-heading">
+      <h2 id="quotes-heading">Key Takeaways</h2>
+      <div class="quotes-grid">
+        {% for quote in pull_quotes %}
+          <blockquote>{{ quote }}</blockquote>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Full Transcript -->
+    <section aria-labelledby="transcript-heading">
+      <h2 id="transcript-heading">Full Transcript</h2>
+      <div class="transcript-container">
+        <!-- Transcript rendered as plain crawlable text for LLM indexing -->
+        <p class="transcript-text">{{ transcript }}</p>
+      </div>
+    </section>
+
+    <!-- Call to Action -->
+    <div class="cta-block" role="complementary" aria-label="Call to action">
+      <h2>Enjoyed this episode?</h2>
+      <p>Never miss a conversation — follow along wherever you listen.</p>
+      <a href="{{ cta_url }}" class="cta-btn">{{ cta_text }}</a>
+    </div>
+
+  </main>
+
+  <!-- ── Footer ── -->
+  <footer>
+    <p>Transcript generated automatically. Episode originally published on
+      <a href="{{ youtube_url }}" style="color:var(--accent);text-decoration:none;">YouTube</a>.
+    </p>
+  </footer>
+
+</body>
+</html>

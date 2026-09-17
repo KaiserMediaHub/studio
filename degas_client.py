@@ -242,6 +242,50 @@ def stream_clip_video(degas_project_id, clip_id, range_header=None):
     )
 
 
+def upload_audio_chunk(file_uid, chunk_index, total_chunks, filename, chunk_bytes, content_type="application/octet-stream"):
+    """Chunked variant of start_audio_transcription() -- same reassembly
+    protocol as upload_chunk() above, needed because a real episode MP3
+    (30-100+ MB) is past Studio's own nginx's 10MB request-body cap for
+    browser-originated uploads. Returns Degas's response JSON:
+    {"status": "chunk_received", ...} for every chunk except the last, or
+    {"status": "complete", "job_id": ...} once reassembled and the
+    transcription job has started."""
+    resp = _request(
+        "POST", "/transcribe-audio/chunk",
+        data={
+            "file_uid": file_uid,
+            "chunk_index": str(chunk_index),
+            "total_chunks": str(total_chunks),
+            "filename": filename,
+        },
+        files={"data": (filename, chunk_bytes, content_type)},
+    )
+    return resp.json()
+
+
+def start_audio_transcription(filename, audio_bytes, content_type="audio/mpeg"):
+    """Kicks off a standalone Whisper transcription job for a raw audio
+    file that isn't tied to any Degas project/clip -- built for Studio's
+    Podcast Page Generator tab (Ben's ask, 2026-09-17). Returns
+    {"job_id": ..., "status": "transcribing"} immediately; the actual
+    transcription runs in the background on Degas, reusing its already-
+    loaded model rather than Studio loading a second one (see the comment
+    on the matching Degas route for why that matters on a 3.7GB server).
+    Poll get_audio_transcription_status() for the result."""
+    resp = _request(
+        "POST", "/transcribe-audio",
+        files={"audio": (filename, audio_bytes, content_type)},
+    )
+    return resp.json()
+
+
+def get_audio_transcription_status(job_id):
+    """Returns {"status": "transcribing"|"done"|"error", "transcript": ...,
+    "error": ...} for a job started by start_audio_transcription()."""
+    resp = _request("GET", f"/transcribe-audio/{job_id}/status")
+    return resp.json()
+
+
 def get_clip_segments(degas_project_id, clip_id):
     """Returns {original: [...], current: [...]} segments for a clip (task
     #8, glossary system) -- 'original' is the immutable as-transcribed

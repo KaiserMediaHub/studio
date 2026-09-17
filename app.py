@@ -1,5 +1,8 @@
+import base64
 import io
+import json
 import os
+import re
 import uuid
 import calendar as cal_module
 from datetime import datetime, timedelta, timezone
@@ -22,6 +25,7 @@ import degas_client
 import glossary
 import postiz_client
 import nextcloud_client
+import podcast_client
 
 # ── Config ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -2272,6 +2276,209 @@ def task_delete(task_id):
         url_for("task_project_detail", task_project_id=task["task_project_id"]) if task else url_for("tasks_view")
     )
     return redirect(next_url)
+
+
+# ── Podcast Page Generator ───────────────────────────────────────────────────
+# Merged into Studio from the standalone podcast-page-generator tool (Ben's
+# ask, 2026-09-17). Turns a raw episode MP3 + YouTube URL into a fully
+# marked-up, LLM-crawlable HTML page (Schema.org PodcastEpisode JSON-LD,
+# Open Graph tags, full transcript, pull quotes, YouTube embed). Fixes the
+# standalone tool's blocking issue along the way: transcription used to run
+# synchronously inside one HTTP request, which Cloudflare's free-plan 100s
+# proxy timeout killed for any real episode (Whisper takes 2-3 min). This
+# version is fully async: the browser uploads audio in chunks (working
+# around Studio's own 10MB nginx cap the same way video uploads already do
+# -- see project_upload_chunk above), Degas transcribes in the background
+# on its own already-loaded model, and the browser polls for status instead
+# of holding one long-lived connection open.
+PODCAST_OUTPUT_FOLDER = os.path.join(os.path.dirname(__file__), "podcast_output")
+os.makedirs(PODCAST_OUTPUT_FOLDER, exist_ok=True)
+
+
+def _extract_youtube_id(url):
+    for pattern in (r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", r"embed/([A-Za-z0-9_-]{11})"):
+        m = re.search(pattern, url or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+@app.route("/podcast")
+def podcast_view():
+    clients = _nav_clients()
+    return render_template(
+        "podcast.html",
+        clients=clients,
+        active_client=clients[0] if clients else None,
+    )
+
+
+@app.route("/podcast/upload-chunk", methods=["POST"])
+def podcast_upload_chunk():
+    """Receives one audio chunk from the browser and forwards it to Degas's
+    chunked transcribe-audio route, same proxy pattern as
+    project_upload_chunk above. The episode metadata form fields (YouTube
+    URL, colors, CTA, logo) are resent on every chunk request for
+    simplicity -- cheap text fields, no reason to special-case the last
+    one -- but only actually used once the final chunk completes the
+    upload and a Degas job_id comes back."""
+    file_uid = request.form.get("file_uid", "")
+    chunk_index = request.form.get("chunk_index", "")
+    total_chunks = request.form.get("total_chunks", "")
+    filename = request.form.get("filename", "")
+    file_obj = request.files.get("data")
+    if not file_uid or not file_obj:
+        return jsonify({"error": "missing fields"}), 400
+
+    try:
+        result = degas_client.upload_audio_chunk(
+            file_uid, chunk_index, total_chunks, filename,
+            file_obj.stream.read(), file_obj.content_type or "application/octet-stream",
+        )
+    except degas_client.DegasError as e:
+        return jsonify({"error": str(e)}), 502
+
+    if result.get("status") != "complete":
+        return jsonify(result)
+
+    degas_job_id = result.get("job_id")
+    if not degas_job_id:
+        return jsonify({"error": "Degas didn't return a job_id on chunk completion"}), 502
+
+    youtube_url = request.form.get("youtube_url", "").strip()
+    youtube_id = _extract_youtube_id(youtube_url)
+    if not youtube_url or not youtube_id:
+        return jsonify({"error": "Could not parse a valid YouTube video ID from the YouTube URL"}), 400
+
+    form_data = {
+        "youtube_url": youtube_url,
+        "youtube_id": youtube_id,
+        "primary_color": request.form.get("primary_color", "#1a1a2e"),
+        "secondary_color": request.form.get("secondary_color", "#16213e"),
+        "accent_color": request.form.get("accent_color", "#e94560"),
+        "cta_text": request.form.get("cta_text", "Subscribe to the podcast"),
+        "cta_url": request.form.get("cta_url", "#"),
+        "logo_orientation": request.form.get("logo_orientation", "horizontal"),
+        "logo_data_uri": request.form.get("logo_data_uri") or None,
+    }
+
+    studio_job_id = uuid.uuid4().hex
+    db = get_db()
+    db.execute(
+        "INSERT INTO podcast_jobs (id, degas_job_id, status, form_json) VALUES (?, ?, 'transcribing', ?)",
+        (studio_job_id, degas_job_id, json.dumps(form_data))
+    )
+    db.commit()
+    db.close()
+
+    return jsonify({"status": "complete", "job_id": studio_job_id})
+
+
+@app.route("/podcast/status/<job_id>")
+def podcast_status(job_id):
+    db = get_db()
+    row = db.execute("SELECT * FROM podcast_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not row:
+        db.close()
+        return jsonify({"error": "unknown job_id"}), 404
+
+    if row["status"] == "done":
+        db.close()
+        return jsonify({"status": "done", **json.loads(row["result_json"])})
+    if row["status"] == "error":
+        db.close()
+        return jsonify({"status": "error", "error": row["error_message"]})
+
+    # Still transcribing (or generating, see below) -- check in with Degas.
+    try:
+        degas_status = degas_client.get_audio_transcription_status(row["degas_job_id"])
+    except degas_client.DegasError as e:
+        db.execute("UPDATE podcast_jobs SET status = 'error', error_message = ? WHERE id = ?", (str(e), job_id))
+        db.commit()
+        db.close()
+        return jsonify({"status": "error", "error": str(e)})
+
+    if degas_status.get("status") == "transcribing":
+        db.close()
+        return jsonify({"status": "transcribing"})
+    if degas_status.get("status") == "error":
+        err = degas_status.get("error") or "Transcription failed"
+        db.execute("UPDATE podcast_jobs SET status = 'error', error_message = ? WHERE id = ?", (err, job_id))
+        db.commit()
+        db.close()
+        return jsonify({"status": "error", "error": err})
+
+    # Degas is done -- generate title/quotes/description/topics with Claude
+    # and render the output page, all within this one poll response. This
+    # runs once per job: the row moves straight to 'done' or 'error' below,
+    # so a later poll returns the cached result instead of re-running it.
+    transcript = degas_status.get("transcript") or ""
+    form_data = json.loads(row["form_json"])
+
+    try:
+        content = podcast_client.generate_episode_content(transcript, form_data["cta_text"])
+    except podcast_client.PodcastContentError as e:
+        db.execute("UPDATE podcast_jobs SET status = 'error', error_message = ? WHERE id = ?", (str(e), job_id))
+        db.commit()
+        db.close()
+        return jsonify({"status": "error", "error": str(e)})
+
+    page_slug = re.sub(r"[^a-z0-9]+", "-", content["title_suggestions"][0].lower())[:60] or "episode"
+    output_filename = f"{page_slug}-{job_id[:8]}.html"
+
+    rendered = render_template(
+        "podcast_episode_output.html",
+        youtube_id=form_data["youtube_id"],
+        youtube_url=form_data["youtube_url"],
+        title=content["title_suggestions"][0],
+        description=content["description"],
+        key_topics=content["key_topics"],
+        pull_quotes=content["pull_quotes"],
+        transcript=transcript,
+        cta_text=form_data["cta_text"],
+        cta_url=form_data["cta_url"],
+        primary_color=form_data["primary_color"],
+        secondary_color=form_data["secondary_color"],
+        accent_color=form_data["accent_color"],
+        logo_data_uri=form_data["logo_data_uri"],
+        logo_orientation=form_data["logo_orientation"],
+    )
+    output_path = os.path.join(PODCAST_OUTPUT_FOLDER, output_filename)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(rendered)
+
+    result = {
+        "title_suggestions": content["title_suggestions"],
+        "description": content["description"],
+        "pull_quotes": content["pull_quotes"],
+        "key_topics": content["key_topics"],
+        "filename": output_filename,
+        "download_url": url_for("podcast_download", filename=output_filename),
+        "preview_url": url_for("podcast_preview", filename=output_filename),
+    }
+    db.execute(
+        "UPDATE podcast_jobs SET status = 'done', result_json = ? WHERE id = ?",
+        (json.dumps(result), job_id)
+    )
+    db.commit()
+    db.close()
+    return jsonify({"status": "done", **result})
+
+
+@app.route("/podcast/preview/<filename>")
+def podcast_preview(filename):
+    path = os.path.join(PODCAST_OUTPUT_FOLDER, os.path.basename(filename))
+    if not os.path.exists(path):
+        return "File not found", 404
+    return send_file(path)
+
+
+@app.route("/podcast/download/<filename>")
+def podcast_download(filename):
+    path = os.path.join(PODCAST_OUTPUT_FOLDER, os.path.basename(filename))
+    if not os.path.exists(path):
+        return "File not found", 404
+    return send_file(path, as_attachment=True)
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

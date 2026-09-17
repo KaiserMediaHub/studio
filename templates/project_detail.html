@@ -135,6 +135,7 @@
       <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
       <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
       <a class="nav-item {% if request.endpoint == 'tasks_view' %}active{% endif %}" href="{{ url_for('tasks_view') }}">Tasks</a>
+      <a class="nav-item {% if request.endpoint == 'podcast_view' %}active{% endif %}" href="{{ url_for('podcast_view') }}">Podcast</a>
       <details class="nav-group" {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}open{% endif %}>
         <summary class="nav-item nav-toggle {% if request.endpoint in ('postiz_setup_view', 'storage_cleanup_view', 'nextcloud_setup_view') %}active{% endif %}">Settings</summary>
         <div class="nav-submenu">
@@ -280,7 +281,7 @@
         {% endif %}
       </div>
       {% if can_write_posts %}
-        <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form">
+        <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form" style="{{ 'margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);' if project_posts else '' }}">
           {% if project_posts %}
             <div class="hint-banner" style="margin-bottom:10px;">{{ unwritten_clip_count }} newly-added clip{{ 's' if unwritten_clip_count != 1 else '' }} without a post yet.</div>
           {% endif %}

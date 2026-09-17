@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+<link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+<title>Podcast Page Generator — KMG Studio</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#181b22; --surface-2:#1f2330;
+    --border:#2a2f3d; --text:#f4f4f6; --text-dim:#9498a8;
+    --accent:#ff6a2c; --accent-soft:#2a1c14; --radius:10px;
+    --success:#22c55e; --error:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  .app{display:flex;min-height:100vh;}
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+    padding:24px 16px;display:flex;flex-direction:column;gap:28px;}
+  .brand{font-size:19px;font-weight:800;padding:0 8px;}
+  .brand span{color:var(--accent);}
+  .client-select{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;margin-top:10px;cursor:pointer;}
+  .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);
+    padding:0 8px;margin-bottom:6px;font-weight:700;}
+  .nav-item{display:block;padding:10px;border-radius:10px;font-size:14px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .nav-item:hover{background:var(--surface-2);}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent);}
+  .nav-group summary{list-style:none;cursor:pointer;}
+  .nav-group summary::-webkit-details-marker{display:none;}
+  .nav-toggle{display:flex;align-items:center;justify-content:space-between;}
+  .nav-toggle::after{content:"\25BE";font-size:10px;color:var(--text-dim);}
+  .nav-group[open] .nav-toggle::after{content:"\25B4";}
+  .nav-submenu{margin-left:6px;border-left:1px solid var(--border);padding-left:10px;
+    margin-top:2px;margin-bottom:6px;}
+  .nav-subitem{display:block;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;
+    color:var(--text-dim);text-decoration:none;margin-bottom:2px;}
+  .nav-subitem:hover{background:var(--surface-2);}
+  .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
+  .main{flex:1;padding:32px 40px;max-width:720px;}
+  h1{font-size:24px;margin:0 0 4px;}
+  .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:24px;margin-bottom:18px;}
+  .card h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--text-dim);margin-bottom:16px;}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;}
+  .field{margin-bottom:16px;}
+  .field:last-child{margin-bottom:0;}
+  input[type="text"],input[type="url"],textarea{width:100%;background:var(--surface-2);
+    border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;
+    padding:9px 12px;font-family:inherit;outline:none;}
+  .hint{font-size:12px;color:var(--text-dim);margin-top:5px;}
+
+  .color-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .color-preview{display:flex;align-items:center;gap:8px;min-width:0;}
+  input[type="color"]{width:36px;height:36px;border:1px solid var(--border);border-radius:6px;
+    cursor:pointer;padding:2px;background:var(--surface-2);flex-shrink:0;}
+  .color-hex{flex:1;min-width:0;width:0;font-family:monospace;font-size:12px;}
+
+  .upload-area{border:2px dashed var(--border);border-radius:var(--radius);padding:22px 16px;
+    text-align:center;cursor:pointer;position:relative;}
+  .upload-area:hover{border-color:var(--accent);}
+  .upload-area input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+  .upload-area .filename{font-size:12px;color:var(--accent);margin-top:6px;display:none;}
+
+  .orientation-tabs{display:flex;gap:8px;margin-top:12px;}
+  .orientation-tabs label{flex:1;text-align:center;border:1px solid var(--border);border-radius:6px;
+    padding:7px;cursor:pointer;font-size:12px;color:var(--text-dim);margin-bottom:0;}
+  .orientation-tabs input[type="radio"]{display:none;}
+  .orientation-tabs label.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);}
+
+  .btn{border:none;border-radius:8px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;}
+  .btn-primary{width:100%;background:var(--accent);color:#151515;}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+
+  #progress{display:none;}
+  .progress-bar-bg{background:var(--surface-2);border-radius:99px;height:6px;margin-bottom:12px;overflow:hidden;}
+  .progress-bar-fill{height:100%;background:var(--accent);border-radius:99px;width:0%;transition:width .4s ease;}
+  .progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-bottom:10px;}
+  .progress-step{font-size:13px;color:var(--text-dim);padding:6px 0;}
+  .progress-step.active{color:var(--accent);font-weight:600;}
+  .progress-step.done{color:var(--success);}
+
+  #results{display:none;}
+  .titles-list{list-style:none;margin-bottom:16px;}
+  .titles-list li{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+    padding:9px 12px;font-size:13px;margin-bottom:6px;}
+  .quote-item{border-left:3px solid var(--accent);padding:8px 12px;font-size:13px;font-style:italic;
+    color:var(--text-dim);margin-bottom:8px;background:var(--surface-2);border-radius:0 6px 6px 0;}
+  .topics{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+  .topic-tag{background:var(--accent-soft);color:var(--accent);border-radius:20px;padding:3px 10px;font-size:11px;}
+  .action-row{display:flex;gap:8px;}
+  .action-row .btn{flex:1;}
+  .error-box{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
+    padding:12px 16px;font-size:13px;margin-top:14px;display:none;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div>
+      <div class="brand">KMG <span>Studio</span></div>
+      {% if clients %}
+      <select class="client-select" onchange="if(this.value) location.href=this.value;">
+        {% for c in clients %}
+          <option value="{{ url_for('dashboard', client_id=c.id) }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    {% if active_client %}
+    <div>
+      <div class="label">Menu</div>
+      <a class="nav-item" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
+      <a class="nav-item" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
+      <a class="nav-item" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
+      <a class="nav-item" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item" href="{{ url_for('tasks_view') }}">Tasks</a>
+      <a class="nav-item active" href="{{ url_for('podcast_view') }}">Podcast</a>
+      <details class="nav-group">
+        <summary class="nav-item nav-toggle">Settings</summary>
+        <div class="nav-submenu">
+          <a class="nav-subitem" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
+          <a class="nav-subitem" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
+          {% if session.is_admin %}
+          <a class="nav-subitem" href="{{ url_for('access_codes_view') }}">Access Codes</a>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+    <a class="logout" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+
+  <div class="main">
+    <h1>Podcast Page Generator</h1>
+    <div class="sub">Turn an episode MP3 + YouTube link into a crawlable, SEO/LLM-optimized page.</div>
+
+    <form id="generatorForm">
+      <div class="card">
+        <h2>Episode</h2>
+        <div class="field">
+          <label for="youtube_url">YouTube URL *</label>
+          <input type="url" id="youtube_url" name="youtube_url" placeholder="https://www.youtube.com/watch?v=..." required>
+          <p class="hint">Used to embed the video player on the output page.</p>
+        </div>
+        <div class="field">
+          <label>Audio File (MP3) *</label>
+          <div class="upload-area" id="audioDropZone">
+            <input type="file" id="audioInput" accept=".mp3,audio/mpeg" required onchange="handleAudioSelect(this)">
+            <p>Click or drag to upload your episode</p>
+            <p class="filename" id="audioFilename"></p>
+          </div>
+          <p class="hint">Transcribed on the server via Whisper -- large files upload in chunks, no size limit to worry about.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Call to Action</h2>
+        <div class="field">
+          <label for="cta_text">Button Text</label>
+          <input type="text" id="cta_text" name="cta_text" value="Subscribe to the podcast">
+        </div>
+        <div class="field">
+          <label for="cta_url">Button URL</label>
+          <input type="url" id="cta_url" name="cta_url" placeholder="https://yourpodcast.com/subscribe">
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Brand Colors</h2>
+        <div class="color-row">
+          <div>
+            <label>Primary</label>
+            <div class="color-preview">
+              <input type="color" id="primary_color_picker" value="#1a1a2e" oninput="syncColor(this,'primary_color_hex','primary_color')">
+              <input class="color-hex" id="primary_color_hex" value="#1a1a2e" maxlength="7" oninput="syncHex(this,'primary_color_picker','primary_color')">
+              <input type="hidden" id="primary_color" value="#1a1a2e">
+            </div>
+          </div>
+          <div>
+            <label>Secondary</label>
+            <div class="color-preview">
+              <input type="color" id="secondary_color_picker" value="#16213e" oninput="syncColor(this,'secondary_color_hex','secondary_color')">
+              <input class="color-hex" id="secondary_color_hex" value="#16213e" maxlength="7" oninput="syncHex(this,'secondary_color_picker','secondary_color')">
+              <input type="hidden" id="secondary_color" value="#16213e">
+            </div>
+          </div>
+          <div>
+            <label>Accent</label>
+            <div class="color-preview">
+              <input type="color" id="accent_color_picker" value="#e94560" oninput="syncColor(this,'accent_color_hex','accent_color')">
+              <input class="color-hex" id="accent_color_hex" value="#e94560" maxlength="7" oninput="syncHex(this,'accent_color_picker','accent_color')">
+              <input type="hidden" id="accent_color" value="#e94560">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Logo</h2>
+        <div class="upload-area" id="logoDropZone">
+          <input type="file" id="logoInput" accept="image/*" onchange="handleLogoSelect(this)">
+          <p>Click or drag to upload your logo</p>
+          <p class="filename" id="logoFilename"></p>
+        </div>
+        <div class="orientation-tabs" id="orientationTabs">
+          <label class="active" onclick="setOrientation('horizontal', this)">
+            <input type="radio" name="logo_orientation" value="horizontal" checked><span>Horizontal</span>
+          </label>
+          <label onclick="setOrientation('square', this)">
+            <input type="radio" name="logo_orientation" value="square"><span>Square</span>
+          </label>
+          <label onclick="setOrientation('vertical', this)">
+            <input type="radio" name="logo_orientation" value="vertical"><span>Vertical</span>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="generateBtn">Generate Page</button>
+    </form>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="card" id="progress">
+      <div class="progress-label">
+        <span id="progress-stage">Starting…</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBar"></div></div>
+      <div class="progress-step" id="step-upload">Uploading audio</div>
+      <div class="progress-step" id="step-transcribe">Transcribing with Whisper (this can take a couple minutes)</div>
+      <div class="progress-step" id="step-claude">Generating titles &amp; pull quotes</div>
+    </div>
+
+    <div class="card" id="results">
+      <h2 style="margin-bottom:14px;">Page Generated</h2>
+      <p class="hint" style="margin-bottom:8px;">Title used on the page:</p>
+      <ul class="titles-list" id="titlesList"></ul>
+      <p class="hint" style="margin-bottom:8px;">Pull quotes:</p>
+      <div id="quotesList"></div>
+      <p class="hint" style="margin-bottom:8px;">Topics:</p>
+      <div class="topics" id="topicsList"></div>
+      <div class="action-row">
+        <a class="btn btn-ghost" id="previewLink" href="#" target="_blank">Preview</a>
+        <a class="btn btn-primary" id="downloadLink" href="#">Download HTML</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CHUNK_SIZE = 8 * 1024 * 1024; // matches Studio's other chunked uploader (project_detail.html) -- stays under nginx's 10MB cap
+  let logoDataUri = null;
+
+  function syncColor(picker, hexId, hiddenId) {
+    document.getElementById(hexId).value = picker.value;
+    document.getElementById(hiddenId).value = picker.value;
+  }
+  function syncHex(hexInput, pickerId, hiddenId) {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexInput.value)) {
+      document.getElementById(pickerId).value = hexInput.value;
+      document.getElementById(hiddenId).value = hexInput.value;
+    }
+  }
+
+  function handleAudioSelect(input) {
+    const file = input.files[0];
+    const el = document.getElementById('audioFilename');
+    if (file) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      el.textContent = `${file.name} (${mb} MB)`;
+      el.style.display = 'block';
+    }
+  }
+
+  function handleLogoSelect(input) {
+    const file = input.files[0];
+    const el = document.getElementById('logoFilename');
+    if (!file) return;
+    el.textContent = file.name;
+    el.style.display = 'block';
+    const reader = new FileReader();
+    reader.onload = () => { logoDataUri = reader.result; };
+    reader.readAsDataURL(file);
+  }
+
+  function setOrientation(val, labelEl) {
+    document.querySelectorAll('#orientationTabs label').forEach(l => l.classList.remove('active'));
+    labelEl.classList.add('active');
+    labelEl.querySelector('input[type=radio]').checked = true;
+  }
+
+  function setProgress(pct, stage) {
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progress-pct').textContent = Math.round(pct) + '%';
+    document.getElementById('progress-stage').textContent = stage;
+  }
+  function setStepActive(id) {
+    ['upload', 'transcribe', 'claude'].forEach(s => {
+      document.getElementById(`step-${s}`).classList.remove('active');
+    });
+    document.getElementById(`step-${id}`).classList.add('active');
+  }
+  function setStepDone(id) {
+    const el = document.getElementById(`step-${id}`);
+    el.classList.remove('active');
+    el.classList.add('done');
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = 'Error: ' + msg;
+    box.style.display = 'block';
+    document.getElementById('progress').style.display = 'none';
+    resetButton();
+  }
+
+  function resetButton() {
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = false;
+    btn.textContent = 'Generate Page';
+  }
+
+  function uid() {
+    return 'f' + Date.now() + Math.random().toString(16).slice(2);
+  }
+
+  document.getElementById('generatorForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const audioFile = document.getElementById('audioInput').files[0];
+    if (!audioFile) return;
+
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('progress').style.display = 'block';
+    setStepActive('upload');
+    setProgress(0, 'Uploading…');
+
+    const meta = {
+      youtube_url: document.getElementById('youtube_url').value.trim(),
+      cta_text: document.getElementById('cta_text').value || 'Subscribe to the podcast',
+      cta_url: document.getElementById('cta_url').value || '#',
+      primary_color: document.getElementById('primary_color').value,
+      secondary_color: document.getElementById('secondary_color').value,
+      accent_color: document.getElementById('accent_color').value,
+      logo_orientation: document.querySelector('input[name=logo_orientation]:checked').value,
+      logo_data_uri: logoDataUri || '',
+    };
+
+    if (!meta.youtube_url) {
+      showError('YouTube URL is required');
+      return;
+    }
+
+    const fileUid = uid();
+    const totalChunks = Math.max(1, Math.ceil(audioFile.size / CHUNK_SIZE));
+
+    function sendChunk(index) {
+      const start = index * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, audioFile.size);
+      const chunk = audioFile.slice(start, end);
+
+      const form = new FormData();
+      form.append('file_uid', fileUid);
+      form.append('chunk_index', index);
+      form.append('total_chunks', totalChunks);
+      form.append('filename', audioFile.name);
+      form.append('data', chunk, audioFile.name);
+      Object.keys(meta).forEach(k => form.append(k, meta[k]));
+
+      fetch('/podcast/upload-chunk', { method: 'POST', body: form })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) { showError(data.error); return; }
+
+          setProgress(((index + 1) / totalChunks) * 25, `Uploading… (${index + 1}/${totalChunks})`);
+
+          if (data.status === 'complete') {
+            setStepDone('upload');
+            setStepActive('transcribe');
+            setProgress(30, 'Transcribing with Whisper…');
+            pollStatus(data.job_id);
+          } else {
+            sendChunk(index + 1);
+          }
+        })
+        .catch(() => showError('Network error during upload -- please try again.'));
+    }
+
+    sendChunk(0);
+  });
+
+  function pollStatus(jobId) {
+    let elapsedPolls = 0;
+    const timer = setInterval(() => {
+      elapsedPolls++;
+      fetch(`/podcast/status/${jobId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'error') {
+            clearInterval(timer);
+            showError(data.error || 'Something went wrong');
+            return;
+          }
+          if (data.status === 'transcribing') {
+            // Ease progress from 30% toward 85% the longer this runs, without
+            // ever claiming to know exactly how far along Whisper is.
+            const eased = 30 + Math.min(55, elapsedPolls * 2);
+            setProgress(eased, 'Transcribing with Whisper…');
+            return;
+          }
+          if (data.status === 'done') {
+            clearInterval(timer);
+            setStepDone('transcribe');
+            setStepDone('claude');
+            setProgress(100, 'Done!');
+            showResults(data);
+          }
+        })
+        .catch(() => { /* transient network hiccup -- keep polling */ });
+    }, 3000);
+  }
+
+  function showResults(data) {
+    document.getElementById('progress').style.display = 'none';
+    resetButton();
+
+    const titlesList = document.getElementById('titlesList');
+    titlesList.innerHTML = data.title_suggestions.map((t, i) =>
+      `<li>${i === 0 ? '<strong>Used:</strong> ' : ''}${t}</li>`
+    ).join('');
+
+    document.getElementById('quotesList').innerHTML = data.pull_quotes.map(q =>
+      `<div class="quote-item">"${q}"</div>`
+    ).join('');
+
+    document.getElementById('topicsList').innerHTML = data.key_topics.map(t =>
+      `<span class="topic-tag">${t}</span>`
+    ).join('');
+
+    document.getElementById('previewLink').href = data.preview_url;
+    document.getElementById('downloadLink').href = data.download_url;
+
+    document.getElementById('results').style.display = 'block';
+  }
+</script>
+</body>
+</html>

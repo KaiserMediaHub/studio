@@ -218,6 +218,26 @@ def init_db():
         )
     """)
 
+    # Podcast Page Generator tab (Ben's ask 2026-09-17, merging the
+    # standalone podcast-page-generator tool into Studio). Job state has to
+    # live here, not an in-process dict -- gunicorn runs multiple workers
+    # (separate processes/memory), and a poll for a given job_id can land
+    # on a different worker than the one that created it. result_json holds
+    # the Claude-generated title/quotes/description/topics + output
+    # filename once done, so a repeat poll after completion returns the
+    # same cached result instead of re-calling Claude.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS podcast_jobs (
+            id            TEXT PRIMARY KEY,
+            degas_job_id  TEXT,
+            status        TEXT NOT NULL DEFAULT 'transcribing',  -- transcribing / generating / done / error
+            form_json     TEXT,
+            result_json   TEXT,
+            error_message TEXT,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Seed exactly once, from the existing APP_PASSWORD env var, so this
     # migration doesn't lock Ben out on first deploy -- his current password
     # keeps working, now as the admin code labeled "Admin (original)".
