@@ -580,7 +580,19 @@ def project_detail(project_id):
     # except here the video comes from the post's own linked clip rather than
     # a manual upload (task #27, Ben's ask 7/24).
     channels, channels_error = _get_schedulable_channels(linked, postiz_client.MEDIA_CAPABLE_IDENTIFIERS)
-    can_write_posts = any(c["status"] in ("transcribed", "exported") for c in degas_clips)
+    # Ben's report (2026-09-17): adding new clips to a project that already
+    # had posts written left no way to generate posts for just the new
+    # ones -- the "Write Posts" form was gated on project_posts being empty
+    # entirely. can_write_posts now means "at least one eligible clip has no
+    # post yet", independent of whether earlier clips already do, so the
+    # form can reappear for a same-project top-up instead of only the very
+    # first batch.
+    existing_post_clip_ids = {p["clip_id"] for p in project_posts if p["clip_id"]}
+    unwritten_clips = [
+        c for c in degas_clips
+        if c["status"] in ("transcribed", "exported") and c["id"] not in existing_post_clip_ids
+    ]
+    can_write_posts = bool(unwritten_clips)
 
     clip_by_id = {c["id"]: c for c in degas_clips}
     posts_view = []
@@ -605,6 +617,7 @@ def project_detail(project_id):
         export_styles=degas_client.EXPORT_STYLES,
         project_posts=posts_view,
         can_write_posts=can_write_posts,
+        unwritten_clip_count=len(unwritten_clips),
         linked=linked,
         channels=channels,
         channels_error=channels_error,
@@ -1243,9 +1256,23 @@ def project_write_posts(project_id):
         db.close()
         return render_template("error.html", message=str(e)), 502
 
-    transcript, ordered_clip_ids = _build_project_transcript(proj["degas_project_id"], degas_proj.get("clips", []))
+    # Only build the transcript from clips that don't already have a post in
+    # this project -- otherwise re-running "Write Posts" after adding new
+    # clips would regenerate and duplicate posts for clips already written
+    # (Ben's report, 2026-09-17: a project with 2 already-written clips plus
+    # 3 newly-added ones had no way to write posts for just the new 3).
+    existing_post_clip_ids = {
+        row["clip_id"] for row in db.execute(
+            "SELECT clip_id FROM posts WHERE project_id = ? AND clip_id IS NOT NULL", (project_id,)
+        ).fetchall()
+    }
+    new_clips = [c for c in degas_proj.get("clips", []) if c["id"] not in existing_post_clip_ids]
+
+    transcript, ordered_clip_ids = _build_project_transcript(proj["degas_project_id"], new_clips)
     if not transcript.strip():
         db.close()
+        if existing_post_clip_ids:
+            return render_template("error.html", message="Every reviewed clip already has a post written for this project -- add a new clip, or use Regenerate on an existing post."), 400
         return render_template("error.html", message="No reviewed transcript text yet -- transcribe and review at least one clip before writing posts."), 400
 
     try:

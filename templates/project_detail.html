@@ -279,37 +279,39 @@
           <a class="btn btn-ghost btn-small" href="{{ url_for('project_posts_export_doc', project_id=project.id) }}">Export all to Doc</a>
         {% endif %}
       </div>
-      {% if not project_posts %}
-        {% if can_write_posts %}
-          <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form">
-            <div class="context-field">
-              <label>Context (optional) — anything Hemingway should keep in mind on topic/angle</label>
-              <textarea name="context" placeholder="e.g. this batch is about the new studio opening, keep tone celebratory, avoid pricing details..."></textarea>
+      {% if can_write_posts %}
+        <form method="POST" action="{{ url_for('project_write_posts', project_id=project.id) }}" class="js-loading-form">
+          {% if project_posts %}
+            <div class="hint-banner" style="margin-bottom:10px;">{{ unwritten_clip_count }} newly-added clip{{ 's' if unwritten_clip_count != 1 else '' }} without a post yet.</div>
+          {% endif %}
+          <div class="context-field">
+            <label>Context (optional) — anything Hemingway should keep in mind on topic/angle</label>
+            <textarea name="context" placeholder="e.g. this batch is about the new studio opening, keep tone celebratory, avoid pricing details..."></textarea>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <div class="field">
+              <select name="style">
+                <option value="thought-leader">thought-leader</option>
+                <option value="conversational" selected>conversational</option>
+                <option value="storyteller">storyteller</option>
+                <option value="punchy">punchy</option>
+              </select>
             </div>
-            <div style="display:flex;gap:10px;align-items:center;">
-              <div class="field">
-                <select name="style">
-                  <option value="thought-leader">thought-leader</option>
-                  <option value="conversational" selected>conversational</option>
-                  <option value="storyteller">storyteller</option>
-                  <option value="punchy">punchy</option>
-                </select>
-              </div>
-              <div class="field">
-                <select name="length">
-                  <option value="super-short">super-short</option>
-                  <option value="short" selected>short</option>
-                  <option value="medium">medium</option>
-                  <option value="long">long</option>
-                </select>
-              </div>
-              <button class="btn btn-primary btn-small" type="submit" data-loading-text="Writing posts…">Write posts from reviewed transcript</button>
+            <div class="field">
+              <select name="length">
+                <option value="super-short">super-short</option>
+                <option value="short" selected>short</option>
+                <option value="medium">medium</option>
+                <option value="long">long</option>
+              </select>
             </div>
-          </form>
-        {% else %}
-          <div class="empty">Transcribe and review at least one clip before writing posts.</div>
-        {% endif %}
-      {% else %}
+            <button class="btn btn-primary btn-small" type="submit" data-loading-text="Writing posts…">{{ "Write posts for new clips" if project_posts else "Write posts from reviewed transcript" }}</button>
+          </div>
+        </form>
+      {% elif not project_posts %}
+        <div class="empty">Transcribe and review at least one clip before writing posts.</div>
+      {% endif %}
+      {% if project_posts %}
         {% if channels_error %}
           <div class="error-banner">{{ channels_error }}</div>
         {% elif not linked %}

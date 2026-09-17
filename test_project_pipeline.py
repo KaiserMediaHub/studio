@@ -303,6 +303,103 @@ def test_write_posts_no_reviewed_transcript():
     check("write_posts: clear message about needing a reviewed transcript", "reviewed transcript" in body)
 
 
+TOPUP_CLIPS = [
+    {"id": 11, "filename": "a.mp4", "original_filename": "Already1.mp4", "status": "transcribed", "error_message": None, "style": None},
+    {"id": 12, "filename": "b.mp4", "original_filename": "Already2.mp4", "status": "transcribed", "error_message": None, "style": None},
+    {"id": 13, "filename": "c.mp4", "original_filename": "New1.mp4", "status": "transcribed", "error_message": None, "style": None},
+    {"id": 14, "filename": "d.mp4", "original_filename": "New2.mp4", "status": "transcribed", "error_message": None, "style": None},
+    {"id": 15, "filename": "e.mp4", "original_filename": "New3.mp4", "status": "transcribed", "error_message": None, "style": None},
+]
+
+
+def test_write_posts_topup_only_writes_new_clips():
+    """Regression test for Ben's report (2026-09-17): a project with 2 clips
+    that already had posts written, plus 3 newly-added clips, had no way to
+    write posts for just the new 3 -- the Write Posts form disappeared
+    entirely once any posts existed, and even if it hadn't, re-running it
+    would have regenerated + duplicated posts for the first 2 clips too."""
+    pid = make_project("Topup Test")
+    degas_client.get_project = lambda p: {"id": p, "clips": TOPUP_CLIPS}
+    degas_client.get_clip_segments = lambda p, c: {
+        "current": [{"start": 0, "end": 1, "text": f"segment for clip {c}"}]
+    }
+
+    db = database.get_db()
+    db.execute(
+        """INSERT INTO posts (client_id, project_id, source, caption, status, clip_id)
+           VALUES (?, ?, 'project', 'existing post 1', 'draft', 11)""",
+        (CLIENT_ID, pid)
+    )
+    db.execute(
+        """INSERT INTO posts (client_id, project_id, source, caption, status, clip_id)
+           VALUES (?, ?, 'project', 'existing post 2', 'draft', 12)""",
+        (CLIENT_ID, pid)
+    )
+    db.commit()
+    db.close()
+
+    # can_write_posts should stay True (3 unwritten clips remain) even
+    # though project_posts is non-empty, and the page should show BOTH the
+    # existing posts and a top-up write form, not one or the other.
+    resp = client.get(f"/projects/{pid}")
+    body = resp.get_data(as_text=True)
+    check("project_detail: existing posts still shown", "existing post 1" in body and "existing post 2" in body)
+    check("project_detail: write form reappears for the 3 new clips", "Write posts for new clips" in body)
+    check("project_detail: hint banner reports correct unwritten count", "3 newly-added clips without a post yet" in body, body)
+
+    generate_calls = {}
+    def fake_generate(client_id, transcript, style, length, context="", name=""):
+        generate_calls["transcript"] = transcript
+        return {"batch_id": 1001, "posts": [
+            {"id": 601, "title": "New1", "body": "New body one", "error": None},
+            {"id": 602, "title": "New2", "body": "New body two", "error": None},
+            {"id": 603, "title": "New3", "body": "New body three", "error": None},
+        ]}
+    hemingway_client.generate_from_transcript = fake_generate
+
+    resp = client.post(f"/projects/{pid}/write-posts", data={"style": "conversational", "length": "short"})
+    check("write_posts topup: redirects to project_detail", resp.status_code == 302 and f"/projects/{pid}" in resp.headers["Location"])
+    # _build_project_transcript titles each VIDEO: section with the
+    # filename minus its extension (os.path.splitext), so "New1.mp4" shows
+    # up in the transcript as "New1", not "New1.mp4".
+    check("write_posts topup: transcript only includes the 3 new clips",
+          "New1" in generate_calls["transcript"] and "New2" in generate_calls["transcript"] and "New3" in generate_calls["transcript"]
+          and "Already1" not in generate_calls["transcript"] and "Already2" not in generate_calls["transcript"],
+          generate_calls["transcript"])
+
+    db = database.get_db()
+    posts = db.execute("SELECT * FROM posts WHERE project_id = ?", (pid,)).fetchall()
+    db.close()
+    check("write_posts topup: exactly 5 posts total (2 original + 3 new, none duplicated)", len(posts) == 5, len(posts))
+
+
+def test_write_posts_topup_all_clips_already_written():
+    pid = make_project("Topup All Written Test")
+    degas_client.get_project = lambda p: {"id": p, "clips": TOPUP_CLIPS[:2]}
+    db = database.get_db()
+    db.execute(
+        """INSERT INTO posts (client_id, project_id, source, caption, status, clip_id)
+           VALUES (?, ?, 'project', 'existing post 1', 'draft', 11)""",
+        (CLIENT_ID, pid)
+    )
+    db.execute(
+        """INSERT INTO posts (client_id, project_id, source, caption, status, clip_id)
+           VALUES (?, ?, 'project', 'existing post 2', 'draft', 12)""",
+        (CLIENT_ID, pid)
+    )
+    db.commit()
+    db.close()
+
+    resp = client.get(f"/projects/{pid}")
+    body = resp.get_data(as_text=True)
+    check("project_detail: no write form when every clip already has a post", "Write posts for new clips" not in body)
+
+    resp = client.post(f"/projects/{pid}/write-posts", data={"style": "conversational", "length": "short"})
+    body = resp.get_data(as_text=True)
+    check("write_posts topup: 400 when every reviewed clip already has a post", resp.status_code == 400)
+    check("write_posts topup: clear message pointing at Regenerate instead", "already has a post" in body, body)
+
+
 def test_write_posts_not_linked_to_degas():
     db = database.get_db()
     db.execute("INSERT INTO projects (client_id, name, degas_project_id, phase) VALUES (?, 'No Degas', NULL, 'intake')", (CLIENT_ID,))
@@ -347,6 +444,8 @@ test_export_and_export_all()
 test_download_proxy_success_and_not_ready()
 test_upload_chunk_proxy()
 test_write_posts_success()
+test_write_posts_topup_only_writes_new_clips()
+test_write_posts_topup_all_clips_already_written()
 test_write_posts_no_reviewed_transcript()
 test_write_posts_not_linked_to_degas()
 test_project_post_actions_redirect_to_project()
