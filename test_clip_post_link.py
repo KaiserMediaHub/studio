@@ -279,30 +279,106 @@ def test_schedule_youtube_success_uploads_exported_clip():
     check("schedule: post marked scheduled", post["status"] == "scheduled", post["status"])
 
 
-def test_schedule_text_only_channel_never_touches_media():
-    pid = make_project("Text Only Schedule Test")
+def test_schedule_text_only_channel_no_linked_clip_never_touches_media():
+    """No clip_id at all (e.g. a quick post) -- LinkedIn/Facebook still post
+    fine text-only, and there's nothing to opportunistically fetch."""
+    db = database.get_db()
+    db.execute(
+        "INSERT INTO posts (client_id, source, caption, media_ref, status, hemingway_post_id) VALUES (?, 'quick', ?, ?, 'draft', ?)",
+        (CLIENT_ID, "text only caption, no clip", "https://drive.google.com/y", 117)
+    )
+    db.commit()
+    post_id = db.execute("SELECT id FROM posts WHERE hemingway_post_id = 117").fetchone()["id"]
+    db.close()
+    link_postiz()
+    postiz_client.list_integrations = lambda group_id: INTEGRATIONS
+
+    upload_calls = []
+    postiz_client.upload_file = lambda *a, **kw: upload_calls.append(1) or {"id": "should-not-happen", "path": "x"}
+    postiz_client.create_post = lambda post_type, date_iso, posts, **kw: [{"postId": "p2", "integration": {"id": "int-li"}}]
+    degas_client.get_clip_status = lambda p, c: (_ for _ in ()).throw(AssertionError("should not check clip status with no linked clip"))
+
+    resp = client.post(f"/quick-posts/{post_id}/schedule-to-postiz", data={
+        "client_id": CLIENT_ID, "channel_ids": ["int-li"], "send_at": "2026-08-01T10:00"
+    })
+    check("schedule: text-only, no clip -- succeeds", resp.status_code == 302, resp.status_code)
+    check("schedule: text-only, no clip -- never calls upload_file", len(upload_calls) == 0, upload_calls)
+
+
+def test_schedule_text_only_channel_unexported_clip_falls_through():
+    """Clip is linked but not exported yet, LinkedIn-only -- should still
+    post text-only rather than blocking (blocking is only for platforms that
+    REQUIRE media, e.g. YouTube/Instagram)."""
+    pid = make_project("Text Only Unexported Test")
     link_postiz()
     postiz_client.list_integrations = lambda group_id: INTEGRATIONS
 
     db = database.get_db()
     db.execute(
         "INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id) VALUES (?, ?, 'project', ?, 'draft', ?, ?)",
-        (CLIENT_ID, pid, "text only caption", 116, 61)
+        (CLIENT_ID, pid, "text only caption, unexported clip", 118, 62)
     )
     db.commit()
-    post_id = db.execute("SELECT id FROM posts WHERE hemingway_post_id = 116").fetchone()["id"]
+    post_id = db.execute("SELECT id FROM posts WHERE hemingway_post_id = 118").fetchone()["id"]
     db.close()
 
     upload_calls = []
     postiz_client.upload_file = lambda *a, **kw: upload_calls.append(1) or {"id": "should-not-happen", "path": "x"}
-    postiz_client.create_post = lambda post_type, date_iso, posts, **kw: [{"postId": "p2", "integration": {"id": "int-li"}}]
-    degas_client.get_clip_status = lambda p, c: (_ for _ in ()).throw(AssertionError("should not check clip status for text-only channel"))
+    postiz_client.create_post = lambda post_type, date_iso, posts, **kw: [{"postId": "p3", "integration": {"id": "int-li"}}]
+    degas_client.get_clip_status = lambda p, c: {"status": "transcribed"}  # not exported
 
     resp = client.post(f"/quick-posts/{post_id}/schedule-to-postiz", data={
         "client_id": CLIENT_ID, "channel_ids": ["int-li"], "send_at": "2026-08-01T10:00"
     })
-    check("schedule: text-only channel succeeds", resp.status_code == 302, resp.status_code)
-    check("schedule: text-only channel never calls upload_file", len(upload_calls) == 0, upload_calls)
+    check("schedule: text-only, unexported clip -- succeeds, not blocked", resp.status_code == 302, resp.status_code)
+    check("schedule: text-only, unexported clip -- never calls upload_file", len(upload_calls) == 0, upload_calls)
+
+
+def test_schedule_linkedin_attaches_exported_clip_video():
+    """The actual bug fix (Ben's report, 2026-09-21): LinkedIn/Facebook were
+    going out text-only even with an exported, linked clip -- video was
+    never fetched because the fetch was gated on MEDIA_REQUIRED_IDENTIFIERS
+    (Instagram/YouTube only). This confirms LinkedIn now gets the video."""
+    pid = make_project("LinkedIn Video Attach Test")
+    link_postiz()
+    postiz_client.list_integrations = lambda group_id: INTEGRATIONS
+
+    db = database.get_db()
+    db.execute(
+        "INSERT INTO posts (client_id, project_id, source, caption, status, hemingway_post_id, clip_id) VALUES (?, ?, 'project', ?, 'draft', ?, ?)",
+        (CLIENT_ID, pid, "caption ready to post, linkedin only", 119, 63)
+    )
+    db.commit()
+    post_id = db.execute("SELECT id FROM posts WHERE hemingway_post_id = 119").fetchone()["id"]
+    db.close()
+
+    degas_client.get_clip_status = lambda p, c: {"status": "exported"}
+
+    class FakeDownloadResp:
+        content = b"linkedin-video-bytes"
+    degas_client.download_clip = lambda p, c: FakeDownloadResp()
+
+    upload_calls = []
+    def fake_upload(file_obj, filename, content_type):
+        upload_calls.append((filename, content_type, file_obj.read()))
+        return {"id": "media-li-1", "path": "/uploads/media-li-1"}
+    postiz_client.upload_file = fake_upload
+
+    create_post_calls = []
+    def fake_create_post(post_type, date_iso, posts, **kw):
+        create_post_calls.append(posts)
+        return [{"postId": "p4", "integration": {"id": "int-li"}}]
+    postiz_client.create_post = fake_create_post
+
+    resp = client.post(f"/quick-posts/{post_id}/schedule-to-postiz", data={
+        "client_id": CLIENT_ID, "channel_ids": ["int-li"], "send_at": "2026-08-01T10:00"
+    })
+    check("schedule: LinkedIn -- redirects on success", resp.status_code == 302, resp.status_code)
+    check("schedule: LinkedIn -- upload_file called exactly once", len(upload_calls) == 1, upload_calls)
+    check("schedule: LinkedIn -- uploaded the exported clip's bytes", upload_calls[0][2] == b"linkedin-video-bytes" if upload_calls else False)
+    check("schedule: LinkedIn post item carries the uploaded media",
+          create_post_calls and create_post_calls[0][0]["value"][0]["image"] == [{"id": "media-li-1", "path": "/uploads/media-li-1"}],
+          create_post_calls)
 
 
 test_build_transcript_returns_ordered_clip_ids()
@@ -313,7 +389,9 @@ test_project_detail_shows_youtube_when_clip_exported()
 test_schedule_youtube_blocked_when_clip_not_exported()
 test_schedule_quick_post_blocked_for_media_required_no_clip()
 test_schedule_youtube_success_uploads_exported_clip()
-test_schedule_text_only_channel_never_touches_media()
+test_schedule_text_only_channel_no_linked_clip_never_touches_media()
+test_schedule_text_only_channel_unexported_clip_falls_through()
+test_schedule_linkedin_attaches_exported_clip_video()
 
 print(f"\n{results['pass']} passed, {results['fail']} failed")
 sys.exit(1 if results["fail"] else 0)

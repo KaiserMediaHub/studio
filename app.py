@@ -1656,7 +1656,22 @@ def quick_posts_schedule_to_postiz(post_id):
     reusing the same upload across every media-required channel in this
     submission. If the clip isn't exported yet, this blocks with a clear
     message rather than silently falling back to the uncaptioned original --
-    Ben's explicit call, not a judgment call made here."""
+    Ben's explicit call, not a judgment call made here.
+
+    Bug fix (Ben's report, 2026-09-21): LinkedIn posts were going out as
+    text-only even when scheduled from a project-sourced post with an
+    exported clip -- the video simply never got fetched, because this used
+    to gate the whole "go get the video" step on MEDIA_REQUIRED_IDENTIFIERS
+    (Instagram/YouTube only, since those platforms reject a medialess post
+    outright). LinkedIn is media-CAPABLE, not media-REQUIRED, so it never
+    tripped that check and Studio never even looked for a video to attach --
+    it wasn't a Postiz-side failure, Studio just never sent one. Now: video
+    is fetched whenever any selected channel is in MEDIA_CAPABLE_IDENTIFIERS
+    (attach opportunistically, works for LinkedIn/Facebook too) rather than
+    only MEDIA_REQUIRED_IDENTIFIERS. The hard block-with-error behavior is
+    unchanged and still applies only to the REQUIRED platforms -- a LinkedIn-
+    only submission with no linked clip still posts fine as text-only, it
+    just doesn't get blocked demanding a video it doesn't strictly need."""
     client_id = request.form.get("client_id", type=int)
     channel_ids = request.form.getlist("channel_ids")
     send_at = request.form.get("send_at", "").strip()
@@ -1679,35 +1694,50 @@ def quick_posts_schedule_to_postiz(post_id):
         integrations = postiz_client.list_integrations(linked["postiz_group_id"])
         by_id = {i["id"]: i for i in integrations}
 
-        needs_media = any(
+        requires_media = any(
             by_id.get(cid, {}).get("identifier") in postiz_client.MEDIA_REQUIRED_IDENTIFIERS
             for cid in channel_ids
         )
-        uploaded_media = None
-        if needs_media:
+        # Broader than requires_media on purpose: LinkedIn/Facebook are
+        # media-CAPABLE, not media-REQUIRED, so they never trip the check
+        # above -- but if a clip is linked and exported, attach it there
+        # too instead of only ever fetching video for Instagram/YouTube.
+        wants_media = any(
+            by_id.get(cid, {}).get("identifier") in postiz_client.MEDIA_CAPABLE_IDENTIFIERS
+            for cid in channel_ids
+        )
+        has_linked_clip = bool(post["clip_id"]) and proj and proj["degas_project_id"]
+
+        if requires_media and not has_linked_clip:
+            db.close()
             if not post["clip_id"]:
-                db.close()
                 return render_template("error.html", message="This post has no linked video -- only project-sourced posts (written from a reviewed clip) can schedule to YouTube/Instagram."), 400
-            if not proj or not proj["degas_project_id"]:
-                db.close()
-                return render_template("error.html", message="This post's project isn't linked to Degas -- can't fetch its video."), 400
+            return render_template("error.html", message="This post's project isn't linked to Degas -- can't fetch its video."), 400
+
+        uploaded_media = None
+        if wants_media and has_linked_clip:
             try:
                 clip_status = degas_client.get_clip_status(proj["degas_project_id"], post["clip_id"])
             except degas_client.DegasError as e:
                 db.close()
                 return render_template("error.html", message=str(e)), 502
             if clip_status.get("status") != "exported":
-                db.close()
-                return render_template("error.html", message="This post's clip isn't exported yet -- export it in Caption Review before scheduling to YouTube/Instagram."), 400
-            try:
-                degas_resp = degas_client.download_clip(proj["degas_project_id"], post["clip_id"])
-                video_bytes = degas_resp.content
-            except degas_client.DegasError as e:
-                db.close()
-                return render_template("error.html", message=str(e)), 502
-            uploaded_media = postiz_client.upload_file(
-                io.BytesIO(video_bytes), f"clip_{post['clip_id']}.mp4", "video/mp4"
-            )
+                if requires_media:
+                    db.close()
+                    return render_template("error.html", message="This post's clip isn't exported yet -- export it in Caption Review before scheduling to YouTube/Instagram."), 400
+                # Not exported yet, but nothing selected actually REQUIRES
+                # media (e.g. LinkedIn-only) -- fall through and post
+                # text-only rather than blocking on an optional attachment.
+            else:
+                try:
+                    degas_resp = degas_client.download_clip(proj["degas_project_id"], post["clip_id"])
+                    video_bytes = degas_resp.content
+                except degas_client.DegasError as e:
+                    db.close()
+                    return render_template("error.html", message=str(e)), 502
+                uploaded_media = postiz_client.upload_file(
+                    io.BytesIO(video_bytes), f"clip_{post['clip_id']}.mp4", "video/mp4"
+                )
 
         posts_payload = []
         for cid in channel_ids:
@@ -1716,7 +1746,7 @@ def quick_posts_schedule_to_postiz(post_id):
                 continue
             image = None
             extra = None
-            if integ["identifier"] in postiz_client.MEDIA_REQUIRED_IDENTIFIERS and uploaded_media:
+            if integ["identifier"] in postiz_client.MEDIA_CAPABLE_IDENTIFIERS and uploaded_media:
                 image = [{"id": uploaded_media["id"], "path": uploaded_media["path"]}]
             if integ["identifier"] == "youtube":
                 extra = {"title": youtube_title}
