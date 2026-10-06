@@ -10,7 +10,7 @@
   .card{background:#181b22;border:1px solid #2a2f3d;border-radius:14px;padding:40px;width:360px;max-width:90vw;}
   h1{font-size:22px;margin:0 0 8px;}
   p{color:#b8bcc8;font-size:14px;line-height:1.5;margin:0 0 20px;}
-  input[type=email]{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2f3d;
+  input[type=email],input[type=text]{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2f3d;
     background:#1f2330;color:#f4f4f6;font-size:14px;box-sizing:border-box;margin-bottom:12px;}
   button,.btn{display:block;width:100%;padding:10px;border-radius:8px;border:none;background:#ff6a2c;
     color:#fff;font-weight:700;font-size:14px;cursor:pointer;text-align:center;text-decoration:none;box-sizing:border-box;}
@@ -26,10 +26,12 @@
       <a class="btn" href="{{ url_for('ebook_download') }}">Download</a>
       <iframe src="{{ url_for('ebook_download') }}" style="display:none" title="download"></iframe>
     {% else %}
-      <p>Enter your email to unlock the download.</p>
+      <p>Enter your name and email to unlock the download.</p>
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <form method="POST" action="{{ url_for('ebook_submit') }}">
-        <input type="email" name="email" placeholder="you@example.com" required autofocus>
+        <input type="text" name="first_name" placeholder="First name" required maxlength="80" autocomplete="given-name" autofocus>
+        <input type="text" name="last_name" placeholder="Last name" required maxlength="80" autocomplete="family-name">
+        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
         <div class="hp" aria-hidden="true"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
         <button type="submit">Unlock download</button>
       </form>

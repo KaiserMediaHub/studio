@@ -3,3 +3,9 @@
 __pycache__/
 *.pyc
 .venv/
+# E-book PDF lives on the server only -- committing it would defeat the
+# email gate (this repo is public).
+ebook/
+eBook/
+private/
+*.pdf

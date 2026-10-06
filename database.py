@@ -251,6 +251,17 @@ def init_db():
             download_count      INTEGER NOT NULL DEFAULT 1
         )
     """)
+    # Ben's ask, 2026-10-06: collect first/last name too. Table already
+    # exists on the server, so add columns via safe migration. Rows created
+    # before this have NULL names.
+    for stmt in (
+        "ALTER TABLE ebook_leads ADD COLUMN first_name TEXT",
+        "ALTER TABLE ebook_leads ADD COLUMN last_name TEXT",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
 
     # Seed exactly once, from the existing APP_PASSWORD env var, so this
     # migration doesn't lock Ben out on first deploy -- his current password

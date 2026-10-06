@@ -2540,15 +2540,23 @@ def ebook_submit():
     # Honeypot: real users never see/fill this field; bots usually do.
     if request.form.get("website", "").strip():
         return redirect(url_for("ebook_page"))
+    first_name = " ".join(request.form.get("first_name", "").split())
+    last_name = " ".join(request.form.get("last_name", "").split())
     email = request.form.get("email", "").strip().lower()
+    if not first_name or not last_name or len(first_name) > 80 or len(last_name) > 80:
+        return redirect(url_for("ebook_page", error="Please enter your first and last name."))
     if len(email) > 254 or not _EMAIL_RE.match(email):
         return redirect(url_for("ebook_page", error="Please enter a valid email address."))
     db = get_db()
+    # Repeat visitor: keep the original name if present, fill it in if the
+    # row predates the name fields (NULL), and just bump the counters.
     db.execute(
-        "INSERT INTO ebook_leads (email) VALUES (?) "
+        "INSERT INTO ebook_leads (email, first_name, last_name) VALUES (?, ?, ?) "
         "ON CONFLICT(email) DO UPDATE SET download_count = download_count + 1, "
-        "last_downloaded_at = CURRENT_TIMESTAMP",
-        (email,),
+        "last_downloaded_at = CURRENT_TIMESTAMP, "
+        "first_name = COALESCE(NULLIF(first_name, ''), excluded.first_name), "
+        "last_name = COALESCE(NULLIF(last_name, ''), excluded.last_name)",
+        (email, first_name, last_name),
     )
     db.commit()
     db.close()
@@ -2585,18 +2593,25 @@ def ebook_leads_view():
     leads = db.execute("SELECT * FROM ebook_leads ORDER BY first_seen_at DESC").fetchall()
     db.close()
     if request.args.get("format") == "csv":
-        lines = ["email,first_seen_at,last_downloaded_at,download_count"]
-        for r in leads:
-            # Leading apostrophe defuses spreadsheet formula injection
-            # (emails are public input and the regex allows "=" etc).
-            safe = r["email"].replace('"', '""')
-            if safe[:1] in "=+-@":
+        def cell(value):
+            # Public input -> quote it, and a leading apostrophe defuses
+            # spreadsheet formula injection ("=", "+", "-", "@").
+            safe = (value or "").replace('"', '""')
+            if safe[:1] in ("=", "+", "-", "@"):
                 safe = "'" + safe
-            lines.append(f'"{safe}",{r["first_seen_at"]},{r["last_downloaded_at"]},{r["download_count"]}')
+            return f'"{safe}"'
+
+        lines = ["first_name,last_name,email,first_seen_at,last_downloaded_at,download_count"]
+        for r in leads:
+            lines.append(",".join([
+                cell(r["first_name"]), cell(r["last_name"]), cell(r["email"]),
+                str(r["first_seen_at"]), str(r["last_downloaded_at"]), str(r["download_count"]),
+            ]))
         return Response("\n".join(lines), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=ebook_leads.csv"})
     rows = "".join(
-        f'<tr><td>{escape(r["email"])}</td><td>{r["first_seen_at"]}</td><td>{r["download_count"]}</td></tr>'
+        f'<tr><td>{escape(r["first_name"] or "")}</td><td>{escape(r["last_name"] or "")}</td>'
+        f'<td>{escape(r["email"])}</td><td>{r["first_seen_at"]}</td><td>{r["download_count"]}</td></tr>'
         for r in leads
     )
     return (
@@ -2605,7 +2620,7 @@ def ebook_leads_view():
         f"<h2>E-book leads ({len(leads)})</h2>"
         "<p><a href='?format=csv'>Download CSV</a></p>"
         "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
-        "<tr><th>Email</th><th>First seen</th><th>Downloads</th></tr>"
+        "<tr><th>First name</th><th>Last name</th><th>Email</th><th>First seen</th><th>Downloads</th></tr>"
         f"{rows}</table></body>"
     )
 
