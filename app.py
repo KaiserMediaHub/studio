@@ -15,6 +15,7 @@ from flask import (
     url_for, session, jsonify, Response, send_file, after_this_request
 )
 
+from markupsafe import escape
 from docx import Document
 from docx.shared import Pt
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -44,7 +45,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
 @app.before_request
 def require_login():
-    public = {"login", "static", "health"}
+    public = {"login", "static", "health", "ebook_page", "ebook_submit", "ebook_download"}
     if request.endpoint in public:
         return
     if not session.get("logged_in"):
@@ -2509,6 +2510,104 @@ def podcast_download(filename):
     if not os.path.exists(path):
         return "File not found", 404
     return send_file(path, as_attachment=True)
+
+
+# ── E-book email gate (public, no login) ─────────────────────────────────────
+# Ben's ask, 2026-10-06: visitor enters an email, that unlocks the download
+# (no email is sent), and the address lands in Studio's DB. The PDF lives on
+# the SERVER ONLY (EBOOK_PATH in .env), never in git -- this repo is public,
+# so committing it would let anyone skip the gate.
+EBOOK_TITLE = os.environ.get("EBOOK_TITLE", "Free E-Book")
+EBOOK_DOWNLOAD_NAME = os.environ.get("EBOOK_DOWNLOAD_NAME", "ebook.pdf")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+# Public URL: kmgtools.us/ebooks/content-playbook (Ben's ask, 2026-10-06).
+# nginx proxies ONLY /ebooks/content-playbook* from the bare domain to
+# Studio (see nginx-ebooks.conf), so the rest of Studio never appears there.
+EBOOK_SLUG = "content-playbook"
+
+
+@app.route(f"/ebooks/{EBOOK_SLUG}")
+def ebook_page():
+    return render_template(
+        "ebook.html", title=EBOOK_TITLE,
+        error=request.args.get("error"),
+        unlocked=bool(session.get("ebook_unlocked")),
+    )
+
+
+@app.route(f"/ebooks/{EBOOK_SLUG}/unlock", methods=["POST"])
+def ebook_submit():
+    # Honeypot: real users never see/fill this field; bots usually do.
+    if request.form.get("website", "").strip():
+        return redirect(url_for("ebook_page"))
+    email = request.form.get("email", "").strip().lower()
+    if len(email) > 254 or not _EMAIL_RE.match(email):
+        return redirect(url_for("ebook_page", error="Please enter a valid email address."))
+    db = get_db()
+    db.execute(
+        "INSERT INTO ebook_leads (email) VALUES (?) "
+        "ON CONFLICT(email) DO UPDATE SET download_count = download_count + 1, "
+        "last_downloaded_at = CURRENT_TIMESTAMP",
+        (email,),
+    )
+    db.commit()
+    db.close()
+    session["ebook_unlocked"] = True
+    return redirect(url_for("ebook_page"))
+
+
+@app.route(f"/ebooks/{EBOOK_SLUG}/download")
+def ebook_download():
+    if not session.get("ebook_unlocked"):
+        return redirect(url_for("ebook_page"))
+    path = os.environ.get("EBOOK_PATH", "")
+    if not path or not os.path.isfile(path):
+        return "The download isn't available right now. Please try again later.", 503
+    # Preferred in production: Flask only checks the gate, then hands the
+    # actual file transfer to nginx (X-Accel-Redirect) so a slow or hostile
+    # download can't tie up one of Studio's 2 gunicorn workers. Falls back
+    # to Flask serving the file when EBOOK_XACCEL_URI isn't set (local/tests).
+    xaccel = os.environ.get("EBOOK_XACCEL_URI", "")
+    if xaccel:
+        resp = Response(status=200)
+        resp.headers["X-Accel-Redirect"] = xaccel
+        resp.headers["Content-Type"] = "application/pdf"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{EBOOK_DOWNLOAD_NAME}"'
+        return resp
+    return send_file(path, as_attachment=True, download_name=EBOOK_DOWNLOAD_NAME)
+
+
+@app.route("/settings/ebook-leads")
+def ebook_leads_view():
+    if not _require_admin():
+        return render_template("error.html", message="This page is for the admin code only."), 403
+    db = get_db()
+    leads = db.execute("SELECT * FROM ebook_leads ORDER BY first_seen_at DESC").fetchall()
+    db.close()
+    if request.args.get("format") == "csv":
+        lines = ["email,first_seen_at,last_downloaded_at,download_count"]
+        for r in leads:
+            # Leading apostrophe defuses spreadsheet formula injection
+            # (emails are public input and the regex allows "=" etc).
+            safe = r["email"].replace('"', '""')
+            if safe[:1] in "=+-@":
+                safe = "'" + safe
+            lines.append(f'"{safe}",{r["first_seen_at"]},{r["last_downloaded_at"]},{r["download_count"]}')
+        return Response("\n".join(lines), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=ebook_leads.csv"})
+    rows = "".join(
+        f'<tr><td>{escape(r["email"])}</td><td>{r["first_seen_at"]}</td><td>{r["download_count"]}</td></tr>'
+        for r in leads
+    )
+    return (
+        "<!DOCTYPE html><meta charset='utf-8'><title>E-book leads</title>"
+        "<body style='font-family:sans-serif;max-width:720px;margin:40px auto'>"
+        f"<h2>E-book leads ({len(leads)})</h2>"
+        "<p><a href='?format=csv'>Download CSV</a></p>"
+        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
+        "<tr><th>Email</th><th>First seen</th><th>Downloads</th></tr>"
+        f"{rows}</table></body>"
+    )
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

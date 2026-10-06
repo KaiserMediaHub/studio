@@ -238,6 +238,20 @@ def init_db():
         )
     """)
 
+    # E-book email gate (Ben's ask, 2026-10-06): public visitors enter an
+    # email to unlock the download page. One row per unique email;
+    # download_count/last_downloaded_at track repeat visits rather than
+    # creating duplicate rows.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ebook_leads (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            email               TEXT NOT NULL UNIQUE,
+            first_seen_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_downloaded_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            download_count      INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
     # Seed exactly once, from the existing APP_PASSWORD env var, so this
     # migration doesn't lock Ben out on first deploy -- his current password
     # keeps working, now as the admin code labeled "Admin (original)".
