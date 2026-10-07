@@ -13,6 +13,7 @@ with open(pdf, "wb") as f:
 os.environ["EBOOK_PATH"] = pdf
 
 import app as app_module
+import hemingway_client
 import database
 
 database.init_db()
@@ -115,6 +116,22 @@ check("CSV has name columns", csvd.startswith(b"first_name,last_name,email") and
 admin.post("/ebooks/content-playbook/unlock", data={"first_name": "=HYPERLINK(\"x\")", "last_name": "+cmd", "email": "inj@x.com"})
 csvd = admin.get("/settings/ebook-leads?format=csv").data
 check("CSV defuses formula in names", b'"\'=HYPERLINK' in csvd and b'"\'+cmd"' in csvd, csvd[-200:])
+
+# --- Settings menu item (Ben's ask 2026-10-07) ---
+hemingway_client.get_clients = lambda: [{"id": 1, "name": "Epiphany"}]
+page = admin.get("/settings/ebook-leads").data
+check("leads page uses Studio layout with Settings menu", b"Postiz Setup" in page and b"Access Codes" in page and b"eBook Leads" in page)
+check("leads page: eBook Leads is the active menu item", b'nav-subitem active" href="/settings/ebook-leads"' in page)
+check("leads page: CSV link present", b"format=csv" in page)
+check("leads page: names rendered and escaped", b"O&#39;Neil" in page and b"<script>x" not in page)
+dash = admin.get("/", follow_redirects=True)
+check("admin sees eBook Leads link in Settings on other pages", dash.status_code == 200 and b"Settings" in dash.data and b"eBook Leads" in dash.data, dash.status_code)
+nonadmin = fresh()
+with nonadmin.session_transaction() as sess:
+    sess["logged_in"] = True
+dash2 = nonadmin.get("/", follow_redirects=True)
+check("non-admin does NOT see the eBook Leads link (page loaded, Settings menu present)", dash2.status_code == 200 and b"Settings" in dash2.data and b"eBook Leads" not in dash2.data, dash2.status_code)
+check("non-admin blocked from leads page (403)", nonadmin.get("/settings/ebook-leads").status_code == 403)
 
 # repeat visitor keeps original name
 c.post("/ebooks/content-playbook/unlock", data={"first_name": "Different", "last_name": "Person", "email": "mary@x.com"})

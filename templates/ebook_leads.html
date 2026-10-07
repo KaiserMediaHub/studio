@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
 <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
-<title>Storage Cleanup — KMG Studio</title>
+<title>eBook Leads — KMG Studio</title>
 <style>
   :root{
     --bg:#0f1115; --surface:#181b22; --surface-2:#1f2330;
@@ -43,25 +43,44 @@
   .nav-subitem:hover{background:var(--surface-2);}
   .nav-subitem.active{background:var(--accent-soft);color:var(--accent);}
   .logout{margin-top:auto;color:var(--text-dim);font-size:12px;text-decoration:none;}
-  .main{flex:1;padding:32px 40px;max-width:900px;}
+  .main{flex:1;padding:32px 40px;max-width:1000px;}
   h1{font-size:26px;margin:0 0 4px;}
   .sub{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
   .error-banner{background:#3a1414;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:8px;
     padding:12px 16px;font-size:13px;margin-bottom:20px;}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
-  .empty{color:var(--text-dim);font-size:14px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;}
+  .card-title{font-size:15px;font-weight:700;margin-bottom:12px;}
   .row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
   .row:last-child{border-bottom:none;}
+  .row.revoked{opacity:.5;}
   .row-name{font-weight:700;font-size:14px;}
   .row-meta{color:var(--text-dim);font-size:12px;margin-top:2px;}
-  .age-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
-    background:#3a1414;color:#ff9a9a;white-space:nowrap;margin-left:auto;}
-  .status-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
-    background:var(--surface-2);color:var(--text-dim);text-transform:capitalize;white-space:nowrap;}
-  .btn{border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;
-    background:var(--danger);color:#fff;margin-top:16px;}
-  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
-  .select-all{font-size:13px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+  .admin-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;
+    background:var(--accent-soft);color:var(--accent);margin-left:8px;text-transform:uppercase;}
+  .you-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;
+    background:var(--surface-2);color:var(--text-dim);margin-left:8px;text-transform:uppercase;}
+  .status-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+  .status-pill.active{background:#0d3321;color:var(--good);}
+  .status-pill.revoked{background:#3a1414;color:#ff9a9a;}
+  .btn{border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-primary{background:var(--accent);color:#151515;}
+  .new-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .new-form input{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+    padding:9px 10px;color:var(--text);font-size:13px;}
+  .new-form input[name="label"]{flex:1;min-width:140px;}
+  .new-form input[name="password"]{flex:1;min-width:140px;}
+  .checkbox-label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);white-space:nowrap;}
+  .hint{color:var(--text-dim);font-size:12px;margin-top:10px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    padding:8px 10px;border-bottom:1px solid var(--border);}
+  td{padding:10px;border-bottom:1px solid var(--border);}
+  tr:last-child td{border-bottom:none;}
+  .btn-link{display:inline-block;text-decoration:none;}
+  .empty{color:var(--text-dim);font-size:14px;padding:12px 0;}
 </style>
 </head>
 <body>
@@ -80,19 +99,20 @@
     {% if active_client %}
     <div>
       <div class="label">Menu</div>
-      <a class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
-      <a class="nav-item {% if request.endpoint == 'quick_posts_view' %}active{% endif %}" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
-      <a class="nav-item {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
-      <a class="nav-item {% if request.endpoint == 'glossary_view' %}active{% endif %}" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
+      <a class="nav-item" href="{{ url_for('dashboard', client_id=active_client.id) }}">Dashboard</a>
+      <a class="nav-item" href="{{ url_for('quick_posts_view', client_id=active_client.id) }}">Write Post</a>
+      <a class="nav-item" href="{{ url_for('calendar_view', client_id=active_client.id) }}">Calendar</a>
+      <a class="nav-item" href="{{ url_for('glossary_view', client_id=active_client.id) }}">Glossary</a>
       <a class="nav-item {% if request.endpoint == 'tasks_view' %}active{% endif %}" href="{{ url_for('tasks_view') }}">Tasks</a>
       <a class="nav-item {% if request.endpoint == 'podcast_view' %}active{% endif %}" href="{{ url_for('podcast_view') }}">Podcast</a>
       <details class="nav-group" open>
         <summary class="nav-item nav-toggle active">Settings</summary>
         <div class="nav-submenu">
           <a class="nav-subitem" href="{{ url_for('postiz_setup_view', client_id=active_client.id) }}">Postiz Setup</a>
-          <a class="nav-subitem active" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
+          <a class="nav-subitem" href="{{ url_for('storage_cleanup_view') }}">Storage Cleanup</a>
           <a class="nav-subitem" href="{{ url_for('nextcloud_setup_view', client_id=active_client.id) }}">Cloud KMG Setup</a>
-          {% if session.is_admin %}<a class="nav-subitem" href="{{ url_for('ebook_leads_view') }}">eBook Leads</a>{% endif %}
+          <a class="nav-subitem" href="{{ url_for('access_codes_view') }}">Access Codes</a>
+          <a class="nav-subitem active" href="{{ url_for('ebook_leads_view') }}">eBook Leads</a>
         </div>
       </details>
     </div>
@@ -100,38 +120,29 @@
     <a class="logout" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="main">
-    <h1>Storage Cleanup</h1>
-    <div class="sub">Clips whose project is {{ threshold_days }}+ days old, across every client. Nothing here deletes on its own — check what you want gone and click Delete.</div>
-
-    {% if errors %}
-      <div class="error-banner">{{ errors|join('; ') }}</div>
-    {% endif %}
+    <h1>eBook Leads</h1>
+    <div class="sub">People who entered their name and email to download the Content Playbook at kmgtools.us/ebooks/content-playbook. Each email appears once; repeat downloads only increase the count.</div>
 
     <div class="card">
-      {% if candidates %}
-        <form method="POST" action="{{ url_for('storage_cleanup_delete') }}"
-              onsubmit="return confirm('Permanently delete the selected clip media from Degas? This cannot be undone.');">
-          <div class="toolbar">
-            <label class="select-all">
-              <input type="checkbox" onclick="document.querySelectorAll('.cleanup-check').forEach(function(cb){cb.checked = this.checked;}, this)">
-              Select all
-            </label>
-          </div>
-          {% for c in candidates %}
-          <div class="row">
-            <input type="checkbox" class="cleanup-check" name="delete_ids" value="{{ c.degas_project_id }}:{{ c.clip_id }}">
-            <div>
-              <div class="row-name">{{ c.filename }}</div>
-              <div class="row-meta">{{ c.client_name }} — {{ c.project_name }}</div>
-            </div>
-            <span class="status-pill">{{ c.status }}</span>
-            <span class="age-pill">{{ c.age_days }} days old</span>
-          </div>
-          {% endfor %}
-          <button class="btn" type="submit">Delete selected</button>
-        </form>
+      <div class="card-title">{{ leads|length }} lead{{ '' if leads|length == 1 else 's' }}
+        {% if leads %}<a class="btn btn-primary btn-link" style="float:right;" href="{{ url_for('ebook_leads_view', format='csv') }}">Download CSV</a>{% endif %}
+      </div>
+      {% if leads %}
+      <table>
+        <tr><th>First name</th><th>Last name</th><th>Email</th><th>First downloaded</th><th>Last downloaded</th><th>Downloads</th></tr>
+        {% for l in leads %}
+        <tr>
+          <td>{{ l.first_name or '' }}</td>
+          <td>{{ l.last_name or '' }}</td>
+          <td>{{ l.email }}</td>
+          <td>{{ l.first_seen_at }}</td>
+          <td>{{ l.last_downloaded_at }}</td>
+          <td>{{ l.download_count }}</td>
+        </tr>
+        {% endfor %}
+      </table>
       {% else %}
-        <div class="empty">Nothing is {{ threshold_days }}+ days old yet.</div>
+      <div class="empty">No downloads yet.</div>
       {% endif %}
     </div>
   </div>

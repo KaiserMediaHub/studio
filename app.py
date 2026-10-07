@@ -2609,19 +2609,16 @@ def ebook_leads_view():
             ]))
         return Response("\n".join(lines), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=ebook_leads.csv"})
-    rows = "".join(
-        f'<tr><td>{escape(r["first_name"] or "")}</td><td>{escape(r["last_name"] or "")}</td>'
-        f'<td>{escape(r["email"])}</td><td>{r["first_seen_at"]}</td><td>{r["download_count"]}</td></tr>'
-        for r in leads
-    )
-    return (
-        "<!DOCTYPE html><meta charset='utf-8'><title>E-book leads</title>"
-        "<body style='font-family:sans-serif;max-width:720px;margin:40px auto'>"
-        f"<h2>E-book leads ({len(leads)})</h2>"
-        "<p><a href='?format=csv'>Download CSV</a></p>"
-        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
-        "<tr><th>First name</th><th>Last name</th><th>Email</th><th>First seen</th><th>Downloads</th></tr>"
-        f"{rows}</table></body>"
+    try:
+        clients = hemingway_client.get_clients()
+    except hemingway_client.HemingwayError:
+        clients = []
+    # Jinja autoescapes names/emails (public input), so no manual escaping here.
+    return render_template(
+        "ebook_leads.html",
+        clients=clients,
+        active_client=clients[0] if clients else None,
+        leads=leads,
     )
 
 
