@@ -3,39 +3,231 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }}</title>
+<title>{{ title }} | Win Customers and Get Found by AI Without Chasing Views</title>
+<meta name="description" content="A practical system for business owners and consultants to build organic content that earns trust, gets found, and shows up when someone asks an AI who the go-to expert is. Free download by Ben G. Kaiser.">
+<meta property="og:title" content="Content Playbook: Win Customers and Get Found by AI Without Chasing Views">
+<meta property="og:description" content="Free download by Ben G. Kaiser. Content pillars, a production system, a 30-day challenge, and the Visibility Core 40.">
+<meta property="og:image" content="{{ url_for('ebook_cover', _external=True, _scheme='https') }}">
+<meta property="og:type" content="website">
 <style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-    background:#0f1115;color:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
-  .card{background:#181b22;border:1px solid #2a2f3d;border-radius:14px;padding:40px;width:360px;max-width:90vw;}
-  h1{font-size:22px;margin:0 0 8px;}
-  p{color:#b8bcc8;font-size:14px;line-height:1.5;margin:0 0 20px;}
-  input[type=email],input[type=text]{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2f3d;
-    background:#1f2330;color:#f4f4f6;font-size:14px;box-sizing:border-box;margin-bottom:12px;}
-  button,.btn{display:block;width:100%;padding:10px;border-radius:8px;border:none;background:#ff6a2c;
-    color:#fff;font-weight:700;font-size:14px;cursor:pointer;text-align:center;text-decoration:none;box-sizing:border-box;}
-  .error{color:#ff6a6a;font-size:13px;margin-bottom:12px;}
+  :root{
+    --paper:#fbfaf6; --paper-2:#f3f0e8; --ink:#1d1d1b; --ink-2:#4a4944; --ink-3:#77756d;
+    --rust:#9a3b22; --rust-dark:#7c2e19; --line:#e2ddd0; --white:#ffffff;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  a{color:var(--rust);}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px;}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--rust);}
+  h1,h2,h3{font-family:var(--serif);line-height:1.15;margin:0;color:var(--ink);}
+  h1{font-size:clamp(34px,5.2vw,56px);letter-spacing:-.01em;}
+  h2{font-size:clamp(26px,3.6vw,36px);letter-spacing:-.005em;}
+  h3{font-size:20px;}
+  .rule{width:64px;height:4px;background:var(--rust);margin:0 0 22px;border:0;}
+
+  /* Hero */
+  .hero{padding:56px 0 64px;}
+  .hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:start;}
+  .hero .lede{font-size:20px;color:var(--ink-2);margin:20px 0 0;max-width:34em;}
+  .byline{margin-top:22px;font-size:14px;color:var(--ink-3);}
+  .byline strong{color:var(--ink);}
+  .proof{display:flex;gap:28px;flex-wrap:wrap;margin-top:30px;padding-top:24px;border-top:1px solid var(--line);}
+  .proof div{min-width:120px;}
+  .proof b{display:block;font-family:var(--serif);font-size:28px;line-height:1.1;color:var(--ink);}
+  .proof span{font-size:13px;color:var(--ink-3);}
+
+  /* Form card */
+  .card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:28px;
+    box-shadow:0 18px 40px -22px rgba(29,29,27,.35);}
+  .cover{display:block;width:150px;margin:0 auto 18px;border:1px solid var(--line);border-radius:4px;
+    box-shadow:0 10px 24px -12px rgba(29,29,27,.45);}
+  .card h2{font-size:24px;text-align:center;}
+  .card .sub{color:var(--ink-2);font-size:15px;text-align:center;margin:8px 0 20px;}
+  label{display:block;font-size:13px;font-weight:600;margin:0 0 5px;color:var(--ink-2);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  input[type=text],input[type=email]{width:100%;padding:12px 13px;border:1px solid #cfc9b8;border-radius:8px;
+    font-size:16px;font-family:var(--sans);background:var(--white);color:var(--ink);margin-bottom:14px;}
+  input:focus{outline:2px solid var(--rust);outline-offset:1px;border-color:var(--rust);}
+  .btn{display:block;width:100%;padding:14px 16px;border:0;border-radius:8px;background:var(--rust);color:#fff;
+    font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none;font-family:var(--sans);}
+  .btn:hover{background:var(--rust-dark);}
+  .fine{font-size:12.5px;color:var(--ink-3);text-align:center;margin:12px 0 0;}
+  .error{background:#fdecea;border:1px solid #f1b8b1;color:#8a1f12;border-radius:8px;padding:10px 12px;
+    font-size:14px;margin-bottom:14px;}
+  .back{background:var(--paper-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+    font-size:14px;margin-bottom:14px;text-align:center;}
   .hp{position:absolute;left:-9999px;height:0;overflow:hidden;}
+
+  /* Sections */
+  section{padding:68px 0;}
+  .alt{background:var(--paper-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .section-head{max-width:40em;margin-bottom:36px;}
+  .section-head p{color:var(--ink-2);margin:14px 0 0;font-size:18px;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  .item{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:24px;}
+  .item .num{font-family:var(--serif);color:var(--rust);font-size:15px;font-weight:700;letter-spacing:.06em;}
+  .item h3{margin:6px 0 8px;}
+  .item p{margin:0;color:var(--ink-2);font-size:16px;}
+  .outcomes{list-style:none;margin:0;padding:0;display:grid;gap:14px;max-width:46em;}
+  .outcomes li{padding-left:34px;position:relative;font-size:18px;}
+  .outcomes li::before{content:"";position:absolute;left:0;top:7px;width:18px;height:10px;
+    border-left:3px solid var(--rust);border-bottom:3px solid var(--rust);transform:rotate(-45deg) scale(.9);}
+  .quotes{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  blockquote{margin:0;background:var(--white);border:1px solid var(--line);border-left:4px solid var(--rust);
+    border-radius:10px;padding:22px 24px;font-family:var(--serif);font-size:18px;line-height:1.5;}
+  blockquote cite{display:block;margin-top:12px;font-family:var(--sans);font-style:normal;font-size:13.5px;color:var(--ink-3);}
+  .about{display:grid;grid-template-columns:1fr;gap:14px;max-width:44em;}
+  .about p{margin:0;color:var(--ink-2);font-size:18px;}
+  .final{text-align:center;}
+  .final .btn{display:inline-block;width:auto;padding:15px 34px;margin-top:22px;}
+  footer{padding:30px 0 50px;color:var(--ink-3);font-size:13.5px;text-align:center;}
+
+  @media (max-width:860px){
+    .hero-grid{grid-template-columns:1fr;gap:36px;}
+    .grid,.quotes{grid-template-columns:1fr;}
+    section{padding:52px 0;}
+    .hero{padding:36px 0 44px;}
+  }
+  @media (max-width:420px){ .row2{grid-template-columns:1fr;gap:0;} }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>{{ title }}</h1>
-    {% if unlocked %}
-      <p>Thanks! Your download is ready. If it doesn't start automatically, use the button below.</p>
-      <a class="btn" href="{{ url_for('ebook_download') }}">Download</a>
-      <iframe src="{{ url_for('ebook_download') }}" style="display:none" title="download"></iframe>
-    {% else %}
-      <p>Enter your name and email to unlock the download.</p>
-      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">Free Playbook &middot; By Ben G. Kaiser</div>
+      <hr class="rule" style="margin-top:14px;">
+      <h1>Win Customers and Get Found by AI Without Chasing Views.</h1>
+      <p class="lede">For business owners and consultants who know content matters but freeze before they hit record. It shows you how to build organic content that people trust, that gets found by the people searching for you, and that shows up when someone asks an AI who the go-to expert is.</p>
+      <div class="byline">Written by <strong>Ben G. Kaiser</strong>, Kaiser Media Group</div>
+      <div class="proof">
+        <div><b>52M+</b><span>views on one YouTube channel</span></div>
+        <div><b>$0</b><span>spent on ads to build it</span></div>
+        <div><b>8 yrs</b><span>of organic content</span></div>
+      </div>
+    </div>
+
+    <div class="card" id="get">
+      <img class="cover" src="{{ url_for('ebook_cover') }}" alt="Cover of the Content Playbook by Ben G. Kaiser">
+      <h2>Get the free Playbook</h2>
+      <p class="sub">Enter your name and email. Your download starts right away.</p>
+      {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+      {% if unlocked %}<div class="back">Already signed up? <a href="{{ url_for('ebook_thanks') }}">Download it again</a>.</div>{% endif %}
       <form method="POST" action="{{ url_for('ebook_submit') }}">
-        <input type="text" name="first_name" placeholder="First name" required maxlength="80" autocomplete="given-name" autofocus>
-        <input type="text" name="last_name" placeholder="Last name" required maxlength="80" autocomplete="family-name">
-        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+        <div class="row2">
+          <div><label for="first_name">First name</label>
+            <input id="first_name" type="text" name="first_name" required maxlength="80" autocomplete="given-name"></div>
+          <div><label for="last_name">Last name</label>
+            <input id="last_name" type="text" name="last_name" required maxlength="80" autocomplete="family-name"></div>
+        </div>
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" placeholder="you@company.com" required autocomplete="email">
         <div class="hp" aria-hidden="true"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
-        <button type="submit">Unlock download</button>
+        <button class="btn" type="submit">Get the Playbook</button>
       </form>
-    {% endif %}
+      <p class="fine">Free PDF. No credit card.</p>
+    </div>
   </div>
+</header>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">The problem</div>
+      <h2 style="margin-top:10px;">Why most business owners never start.</h2>
+      <p>Most business owners freeze before they open the camera app and blame it on time. Usually the real issue is that they don't know where they're going. With no plan, every post is a fresh decision and a fresh chance to quit. The Playbook gives you a plan to follow, so you're no longer asking what to say. You're just doing the next step.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">What's inside</div>
+      <h2 style="margin-top:10px;">What's in the Playbook.</h2>
+    </div>
+    <div class="grid">
+      <div class="item"><div class="num">01</div><h3>Find your foundation</h3>
+        <p>Combine your professional niche with your human side so you stop sounding like everyone else in your industry. Learn the four things content actually transfers: judgment, competency, relatability, and trust.</p></div>
+      <div class="item"><div class="num">02</div><h3>Build your content pillars</h3>
+        <p>Pick three to five pillars once. Every post ties back to one of them, so you always know what to talk about and your content adds up to something.</p></div>
+      <div class="item"><div class="num">03</div><h3>A production system that fits your week</h3>
+        <p>How to batch, how to use a question format so you sound like yourself instead of reading a script, and how to shoot for the edit. You can make a month of content in one sitting.</p></div>
+      <div class="item"><div class="num">04</div><h3>Authority over attention</h3>
+        <p>How chasing a viral post can hurt your strategy, with a real example from an HVAC and plumbing company. Plan your content like a book so you're the obvious choice when buyers are ready.</p></div>
+      <div class="item"><div class="num">05</div><h3>The Visibility Core 40</h3>
+        <p>Forty questions across eight sections that get your real language onto the page. Use them to replace vague, interchangeable copy that leaves AI tools unsure who you are.</p></div>
+      <div class="item"><div class="num">06</div><h3>The 30-Day Challenge</h3>
+        <p>Thirty ready-made questions, one per business day, so you never start from a blank page. The only thing you track is whether you kept the streak going.</p></div>
+      <div class="item"><div class="num">07</div><h3>The Long Game</h3>
+        <p>How long consistent content takes to pay off, including the story of a fractional COO who signed three clients in the first ten days after announcing his positioning, following three years of posting.</p></div>
+      <div class="item"><div class="num">08</div><h3>Content networking</h3>
+        <p>How to use podcast guest spots, your own conversations, and events to build relationships and make content at the same time, and why tagging the people you feature extends your reach.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">What you'll walk away with</div>
+      <h2 style="margin-top:10px;">What you'll have when you finish.</h2>
+    </div>
+    <ul class="outcomes">
+      <li>A short list of content pillars, so you always know what to talk about</li>
+      <li>A batch workflow that takes a few hours a month instead of every day</li>
+      <li>30 daily prompts you can start recording or writing today</li>
+      <li>A 40-question framework for making your website and profiles clear and consistent for people and AI tools</li>
+      <li>A realistic timeline, so you don't quit at day 30 because nothing big has happened yet</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">What readers say</div>
+      <h2 style="margin-top:10px;">What people say.</h2>
+    </div>
+    <div class="quotes">
+      <blockquote>&ldquo;I finally had a structure I could take action on. I didn't have to think, what am I going to post. I had a plan, and could execute on that plan.&rdquo;
+        <cite>Blake Martin, Galvix Medical</cite></blockquote>
+      <blockquote>&ldquo;Ben brings real humanness to leadership conversations. His presence and listening create safety, and the content lands because it's honest, not manufactured.&rdquo;
+        <cite>Operations consultant and client</cite></blockquote>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">About the author</div>
+      <h2 style="margin-top:10px;">Ben G. Kaiser</h2>
+    </div>
+    <div class="about">
+      <p>Eight years ago I was a nonprofit graphic designer filming and editing laptop reviews from 4:30 to 6:30 every morning before work. That channel has since passed 52 million views and been responsible for the millions of dollars I've made over the years.</p>
+      <p>Along the way I've been a marketing manager at an agency and at a SaaS company, and a CMO at a healthcare company. In every role, the job was growing organic content: no ads, no bought placements, just something real enough that people found it on their own.</p>
+      <p>Today I run Kaiser Media Group, a full-time agency that helps companies and consultants create content that builds their brand, gets found by the people searching for solutions, and shows up when someone asks an AI who the expert is in their field.</p>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Get the free Content Playbook.</h2>
+    <p style="color:var(--ink-2);font-size:18px;margin:14px 0 0;">It's a PDF. Enter your name and email and it downloads right away.</p>
+    <a class="btn" href="#get">Get the Playbook</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">&copy; Kaiser Media Group &middot; <a href="mailto:ben@kaisermedia.agency">ben@kaisermedia.agency</a></div>
+</footer>
+
 </body>
 </html>

@@ -45,7 +45,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
 @app.before_request
 def require_login():
-    public = {"login", "static", "health", "ebook_page", "ebook_submit", "ebook_download"}
+    public = {"login", "static", "health", "ebook_page", "ebook_submit", "ebook_thanks", "ebook_cover", "ebook_download"}
     if request.endpoint in public:
         return
     if not session.get("logged_in"):
@@ -2528,10 +2528,37 @@ EBOOK_SLUG = "content-playbook"
 
 @app.route(f"/ebooks/{EBOOK_SLUG}")
 def ebook_page():
+    """Landing page: sells the Playbook and holds the name/email form."""
     return render_template(
         "ebook.html", title=EBOOK_TITLE,
         error=request.args.get("error"),
         unlocked=bool(session.get("ebook_unlocked")),
+    )
+
+
+@app.route(f"/ebooks/{EBOOK_SLUG}/cover.png")
+def ebook_cover():
+    """Cover image for the landing page. Served from under /ebooks/<slug>/
+    on purpose: on the public kmgtools.us domain nginx only forwards that
+    path prefix to Studio (everything else, including /static/, is a 404),
+    so a /static/ URL would show a broken image to real visitors."""
+    resp = send_file(os.path.join(os.path.dirname(__file__), "static", "playbook-cover.png"),
+                     mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@app.route(f"/ebooks/{EBOOK_SLUG}/thanks")
+def ebook_thanks():
+    """Thank-you page shown right after the form is submitted. It starts the
+    download automatically (hidden frame) and offers a manual button plus
+    next steps. Visiting it without having submitted the form just sends the
+    visitor back to the landing page."""
+    if not session.get("ebook_unlocked"):
+        return redirect(url_for("ebook_page"))
+    return render_template(
+        "ebook_thanks.html", title=EBOOK_TITLE,
+        first_name=session.get("ebook_first_name", ""),
     )
 
 
@@ -2544,9 +2571,9 @@ def ebook_submit():
     last_name = " ".join(request.form.get("last_name", "").split())
     email = request.form.get("email", "").strip().lower()
     if not first_name or not last_name or len(first_name) > 80 or len(last_name) > 80:
-        return redirect(url_for("ebook_page", error="Please enter your first and last name."))
+        return redirect(url_for("ebook_page", error="Please enter your first and last name.", _anchor="get"))
     if len(email) > 254 or not _EMAIL_RE.match(email):
-        return redirect(url_for("ebook_page", error="Please enter a valid email address."))
+        return redirect(url_for("ebook_page", error="Please enter a valid email address.", _anchor="get"))
     db = get_db()
     # Repeat visitor: keep the original name if present, fill it in if the
     # row predates the name fields (NULL), and just bump the counters.
@@ -2561,13 +2588,14 @@ def ebook_submit():
     db.commit()
     db.close()
     session["ebook_unlocked"] = True
-    return redirect(url_for("ebook_page"))
+    session["ebook_first_name"] = first_name
+    return redirect(url_for("ebook_thanks"))
 
 
 @app.route(f"/ebooks/{EBOOK_SLUG}/download")
 def ebook_download():
     if not session.get("ebook_unlocked"):
-        return redirect(url_for("ebook_page"))
+        return redirect(url_for("ebook_page", _anchor="get"))
     path = os.environ.get("EBOOK_PATH", "")
     if not path or not os.path.isfile(path):
         return "The download isn't available right now. Please try again later.", 503

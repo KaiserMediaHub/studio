@@ -45,7 +45,7 @@ def count():
 
 c = fresh()
 r = c.get("/ebooks/content-playbook")
-check("page loads without login", r.status_code == 200 and b"Unlock download" in r.data, r.status_code)
+check("page loads without login", r.status_code == 200 and b"Get the Playbook" in r.data, r.status_code)
 
 c = fresh()
 r = c.get("/ebooks/content-playbook/download")
@@ -66,7 +66,7 @@ r = c.get("/ebooks/content-playbook/download")
 check("download works after unlock", r.status_code == 200 and r.data == b"%PDF-fake", r.status_code)
 check("download is an attachment", "attachment" in r.headers.get("Content-Disposition", ""))
 r = c.get("/ebooks/content-playbook")
-check("unlocked page shows download button", b'class="btn"' in r.data)
+check("landing page offers a re-download link once unlocked", b"Download it again" in r.data and b"/ebooks/content-playbook/thanks" in r.data)
 
 c2 = fresh()
 c2.post("/ebooks/content-playbook/unlock", data={**N, "email": "jane@example.com"})
@@ -132,6 +132,48 @@ with nonadmin.session_transaction() as sess:
 dash2 = nonadmin.get("/", follow_redirects=True)
 check("non-admin does NOT see the eBook Leads link (page loaded, Settings menu present)", dash2.status_code == 200 and b"Settings" in dash2.data and b"eBook Leads" not in dash2.data, dash2.status_code)
 check("non-admin blocked from leads page (403)", nonadmin.get("/settings/ebook-leads").status_code == 403)
+
+# --- landing + thank-you pages (Ben's ask 2026-10-07) ---
+c = fresh()
+r = c.get("/ebooks/content-playbook")
+body = r.data
+check("landing: headline + value sections present",
+      b"Win Customers and Get Found by AI Without Chasing Views" in body and b"What" in body and b"inside" in body
+      and b"Visibility Core 40" in body and b"30-Day Challenge" in body and b"content pillars" in body.lower().replace(b"Content pillars", b"content pillars"))
+check("landing: form posts to the unlock route", b'action="/ebooks/content-playbook/unlock"' in body)
+cov = c.get("/ebooks/content-playbook/cover.png")
+check("landing: cover image served from under /ebooks/<slug>/ (the only path nginx forwards on kmgtools.us)",
+      b'src="/ebooks/content-playbook/cover.png"' in body and cov.status_code == 200 and cov.mimetype == "image/png" and cov.data[:4] == b"\x89PNG")
+check("landing: no /static/ URLs that would 404 on the public domain", b"/static/" not in body)
+check("landing: og:image is an absolute https URL", b'property="og:image" content="https://' in body)
+check("thanks: no /static/ URLs either", b"/static/" not in (lambda cc: (cc.post("/ebooks/content-playbook/unlock", data={"first_name":"A","last_name":"B","email":"t@x.com"}), cc.get("/ebooks/content-playbook/thanks").data)[1])(fresh()))
+check("landing: no unlocked banner for a fresh visitor", b"Download it again" not in body)
+check("landing: PDF itself is never linked directly", b"/download" not in body and b"ebook.pdf" not in body)
+
+c = fresh()
+r = c.get("/ebooks/content-playbook/thanks")
+check("thanks: locked visitor is redirected to the landing form", r.status_code == 302 and "/ebooks/content-playbook" in r.headers["Location"] and "/thanks" not in r.headers["Location"])
+
+c = fresh()
+r = c.post("/ebooks/content-playbook/unlock", data={"first_name": "Ada", "last_name": "Lovelace", "email": "ada@x.com"})
+check("submit redirects to the thank-you page", r.status_code == 302 and r.headers["Location"].endswith("/ebooks/content-playbook/thanks"), r.headers.get("Location"))
+r = c.get("/ebooks/content-playbook/thanks")
+check("thanks: 200 and greets by first name", r.status_code == 200 and b"Thank you, Ada." in r.data, r.status_code)
+check("thanks: manual download button + auto-download frame",
+      b'href="/ebooks/content-playbook/download"' in r.data and b"<iframe" in r.data and b'src="/ebooks/content-playbook/download"' in r.data)
+check("thanks: next steps and contact present", b"30-Day Challenge" in r.data and b"ben@kaisermedia.agency" in r.data)
+check("thanks: page is noindex", b'name="robots" content="noindex"' in r.data)
+
+c = fresh()
+c.post("/ebooks/content-playbook/unlock", data={"first_name": "<b>Eve</b>", "last_name": "X", "email": "eve@x.com"})
+r = c.get("/ebooks/content-playbook/thanks")
+check("thanks: first name is HTML-escaped", b"<b>Eve</b>" not in r.data and b"&lt;b&gt;Eve&lt;/b&gt;" in r.data)
+
+c = fresh()
+r = c.post("/ebooks/content-playbook/unlock", data={**N, "email": "bad"})
+check("validation errors send visitor back to the form anchor", r.headers["Location"].endswith("#get") and "error=" in r.headers["Location"], r.headers.get("Location"))
+r = c.get("/ebooks/content-playbook?error=Please+enter+a+valid+email+address.")
+check("landing shows the validation error", b"valid email address" in r.data)
 
 # repeat visitor keeps original name
 c.post("/ebooks/content-playbook/unlock", data={"first_name": "Different", "last_name": "Person", "email": "mary@x.com"})
